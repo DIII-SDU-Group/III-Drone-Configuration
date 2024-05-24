@@ -15,7 +15,7 @@ from datetime import datetime
 
 from iii_drone_interfaces.srv import DeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile
 
-from iii_drone_core.configuration.parameter_handler import ParameterHandler
+from iii_drone_configuration.parameter_handler import ParameterHandler
 
 ###############################################################################
 # Class
