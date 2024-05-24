@@ -1,0 +1,37 @@
+parameters:
+  canny_low_threshold:
+    name: "/perception/hough_transformer/canny_low_threshold"
+    type: "int"
+  canny_ratio:
+    name: "/perception/hough_transformer/canny_ratio"
+    type: "int"
+  canny_kernel_size:
+    name: "/perception/hough_transformer/canny_kernel_size"
+    type: "int"
+  n_lines_include:
+    name: "/perception/hough_transformer/n_lines_include"
+    type: "int"
+  drone_frame_id:
+    name: "/tf/drone_frame_id"
+    type: "string"
+  world_frame_id:
+    name: "/tf/world_frame_id"
+    type: "string"
+  cable_gripper_frame_id:
+    name: "/tf/cable_gripper_frame_id"
+    type: "string"
+  mmwave_frame_id:
+    name: "/tf/mmwave_frame_id"
+    type: "string"
+
+parameter_bundles:
+  hough_transformer:
+    canny_low_threshold:
+      remap_name: "canny_low_threshold"
+      update: true
+    canny_ratio:
+      remap_name: "canny_ratio"
+      update: true
+    canny_kernel_size:
+      remap_name: "canny_kernel_size"
+      update: true

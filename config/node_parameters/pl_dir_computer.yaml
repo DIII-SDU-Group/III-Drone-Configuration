@@ -1,0 +1,47 @@
+parameters:
+  kf_r:
+    name: "/perception/pl_dir_computer/kf_r"
+    type: "float"
+  kf_q:
+    name: "/perception/pl_dir_computer/kf_q"
+    type: "float"
+  init_sleep_time_ms:
+    name: "/perception/pl_dir_computer/init_sleep_time_ms"
+    type: "int"
+  odometry_callback_period_ms:
+    name: "/perception/pl_dir_computer/odometry_callback_period_ms"
+    type: "int"
+  min_point_dist:
+    name: "/perception/pl_mapper/min_point_dist"
+    type: "float"
+  max_point_dist:
+    name: "/perception/pl_mapper/max_point_dist"
+    type: "float"
+  view_cone_slope:
+    name: "/perception/pl_mapper/view_cone_slope"
+    type: "float"
+  drone_frame_id:
+    name: "/tf/drone_frame_id"
+    type: "string"
+  world_frame_id:
+    name: "/tf/world_frame_id"
+    type: "string"
+  cable_gripper_frame_id:
+    name: "/tf/cable_gripper_frame_id"
+    type: "string"
+  mmwave_frame_id:
+    name: "/tf/mmwave_frame_id"
+    type: "string"
+
+parameter_bundles:
+  powerline_direction:
+    drone_frame_id:
+      remap_name: "drone_frame_id"
+      update: false
+    kf_r:
+      remap_name: "kf_r"
+      update: true
+    kf_q:
+      remap_name: "kf_q"
+      update: true
+    

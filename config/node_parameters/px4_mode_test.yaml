@@ -1,0 +1,85 @@
+parameters:
+  server_timeout_ms:
+    name: "/behavior/server_timeout_ms"
+    type: "int"
+  wait_for_server_timeout_ms:
+    name: "/behavior/wait_for_server_timeout_ms"
+    type: "int"
+  tree_xml_file:
+    name: "/behavior/tree_xml_file"
+    type: "string"
+  tick_period_ms:
+    name: "/behavior/tick_period_ms"
+    type: "int"
+  target_cable_distance:
+    name: "/behavior/target_cable_distance"
+    type: "float"
+  cable_takeoff_min_target_cable_distance:
+    name: "/control/maneuver_controller/cable_takeoff_min_target_cable_distance"
+    type: "float"
+  cable_takeoff_max_target_cable_distance:
+    name: "/control/maneuver_controller/cable_takeoff_max_target_cable_distance"
+    type: "float"
+  line_min_height_above_drone:
+    name: "/behavior/line_min_height_above_drone"
+    type: "float"
+  select_target_line_method:
+    name: "/behavior/select_target_line_method"
+    type: "string"
+  dt:
+    name: "/control/dt"
+    type: "float"
+  drone_frame_id:
+    name: "/tf/drone_frame_id"
+    type: "string"
+  gripper_frame_id:
+    name: "/tf/cable_gripper_frame_id"
+    type: "string"
+
+parameter_bundles:
+  take_charging_position_tree:
+    server_timeout_ms:
+      remap_name: "server_timeout_ms"
+      update: false
+    wait_for_server_timeout_ms:
+      remap_name: "wait_for_server_timeout_ms"
+      update: false
+    tree_xml_file:
+      remap_name: "tree_xml_file"
+      update: false
+    tick_period_ms:
+      remap_name: "tick_period_ms"
+      update: false
+    dt:
+      remap_name: "dt"
+      update: false
+
+  fly_to_object_maneuver_action_node:
+    target_cable_distance:
+      remap_name: "target_cable_distance"
+      update: true
+    drone_frame_id:
+      remap_name: "drone_frame_id"
+      update: false
+    gripper_frame_id:
+      remap_name: "gripper_frame_id"
+      update: false
+
+  cable_takeoff_maneuver_action_node:
+    cable_takeoff_min_target_cable_distance:
+      remap_name: "cable_takeoff_min_target_cable_distance"
+      update: true
+    cable_takeoff_max_target_cable_distance:
+      remap_name: "cable_takeoff_max_target_cable_distance"
+      update: true
+
+  select_target_line_condition_node:
+    line_min_height_above_drone:
+      remap_name: "line_min_height_above_drone"
+      update: true
+    select_target_line_method:
+      remap_name: "select_target_line_method"
+      update: true
+    drone_frame_id:
+      remap_name: "drone_frame_id"
+      update: false
