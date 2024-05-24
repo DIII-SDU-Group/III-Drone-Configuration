@@ -46,14 +46,14 @@ class ConfigurationServer(Node):
         self.get_logger().info("ConfigurationServer.__init__(): Initializing node " + node_name + " in namespace " + namespace + ".")
 
         # Get user:
-        self.user = os.environ["USER"]
+        self.iii_config_dir = os.path.join(os.getenv("CONFIG_BASE_DIR", default="~/.config"), "iii_drone")
 
-        self.declare_parameter("parameters_dir", "/home/" + self.user + "/.config/iii_drone/parameters/")
-        self.params_dir = str(self.get_parameter("parameters_dir").value)
+        self.declare_parameter("parameters_path_postfix", "parameters")
+        parameters_path_postfix = str(self.get_parameter("parameters_path_postfix").value)
+        self.params_dir = os.path.join(self.iii_config_dir, parameters_path_postfix)
         
         # Replace "~" with "/home/<user>" in the path
-        if self.params_dir[0] == "~":
-            self.params_dir = "/home/" + self.user + self.params_dir[1:]
+        self.params_dir = self.params_dir.replace("~", os.getenv("HOME"))
         
         self.declare_parameter("default_parameter_file", "parameters.yaml")
         
@@ -67,7 +67,7 @@ class ConfigurationServer(Node):
             params_file
         )
         
-        self.ros_params_file = "/home/" + self.user + "/.config/iii_drone/ros_params.yaml"
+        self.ros_params_file = os.path.join(self.iii_config_dir, "ros_params.yaml")
 
         self.parameter_handler = ParameterHandler.from_parameter_file(self.params_file)
 

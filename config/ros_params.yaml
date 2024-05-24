@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    parameters_dir: "~/.config/iii_drone/parameters/"
-    node_parameters_dir: "~/.config/iii_drone/node_parameters/"
+    parameters_path_postfix: "parameters/"
+    node_parameters_path_postfix: "node_parameters/"
     default_parameter_file: "parameters.yaml"
     use_sim_time: true
