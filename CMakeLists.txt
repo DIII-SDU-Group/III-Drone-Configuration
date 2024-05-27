@@ -112,6 +112,7 @@ ament_python_install_package(${PROJECT_NAME})
 # Install Python executables
 install(PROGRAMS
   "${PROJECT_SOURCE_DIR}/scripts/configuration_server_node/configuration_server_node.py"
+  "${PROJECT_SOURCE_DIR}/scripts/configuration_client_node/configuration_client_node.py"
   DESTINATION lib/${PROJECT_NAME}
 )
 
