@@ -1,9 +1,3 @@
-global:
-  simulation:
-    type: "bool"
-    value: true
-    constant: true
-
 perception:
   hough_transformer:
     canny_low_threshold: 

@@ -34,15 +34,21 @@ Configurator::Configurator(
         )
     );
 
-    node_->declare_parameter<std::string>("node_parameters_path_postfix", "/node_parameters/");
+    node_->declare_parameter<std::string>("node_parameters_path_postfix", "node_parameters/");
 
-    std::string config_base_dir = getenv("CONFIG_BASE_DIR");
+    std::string config_base_dir = std::string(getenv("CONFIG_BASE_DIR"));
 
     if (config_base_dir.empty()) {
         config_base_dir = std::string(getenv("HOME")) + "/.config";
     }
 
-    std::string parameter_yaml_path = config_base_dir + node_->get_parameter("node_parameters_path_postfix").as_string();
+    if (config_base_dir.back() != '/') {
+
+        config_base_dir += "/";
+
+    }
+
+    std::string parameter_yaml_path = config_base_dir + "iii_drone/" + node_->get_parameter("node_parameters_path_postfix").as_string();
 
     if (parameter_yaml_path[0] == '~') {
 

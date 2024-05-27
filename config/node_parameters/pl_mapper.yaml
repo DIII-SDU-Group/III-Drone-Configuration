@@ -53,9 +53,6 @@ parameters:
   overwrite_non_FOV_line_positions_from_inter_pos:
     name: "/perception/pl_mapper/overwrite_non_FOV_line_positions_from_inter_pos"
     type: "bool"
-  simulation:
-    name: "/global/simulation"
-    type: "bool"
   drone_frame_id:
     name: "/tf/drone_frame_id"
     type: "string"
@@ -121,7 +118,4 @@ parameter_bundles:
       update: false
     mmwave_frame_id:
       remap_name: "mmwave_frame_id"
-      update: false
-    simulation:
-      remap_name: "simulation"
       update: false
