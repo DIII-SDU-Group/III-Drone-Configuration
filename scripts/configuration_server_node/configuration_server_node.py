@@ -13,7 +13,7 @@ import os
 import yaml
 from datetime import datetime
 
-from iii_drone_interfaces.srv import DeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile
+from iii_drone_interfaces.srv import DeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
 
 from iii_drone_configuration.parameter_handler import ParameterHandler
 
@@ -122,6 +122,12 @@ class ConfigurationServer(Node):
             GetCurrentParameterFile,
             "get_current_parameter_file",
             self.get_current_parameter_file_callback
+        )
+        
+        self.set_current_parameter_file_as_default_service = self.create_service(
+            SetCurrentParameterFileAsDefault,
+            "set_current_parameter_file_as_default",
+            self.set_current_parameter_file_as_default_callback
         )
         
         # Service callback that gets called before a parameter is set:
@@ -485,7 +491,13 @@ class ConfigurationServer(Node):
             )
             
             if request.set_as_default:
+                self.get_logger().info("ConfigurationServer.save_parameters_callback(): Setting default parameter file to " + request.file + ".")
                 self.set_default_parameter_file(request.file)
+
+            self.params_file = os.path.join(
+                self.params_dir,
+                request.file
+            )
             
             response.success = True
             response.message = "Parameters saved successfully."
@@ -644,13 +656,14 @@ class ConfigurationServer(Node):
         parameter_value = request.parameter_string_value
         
         if parameter_dict["type"] == "bool":
-            try:
-                parameter_value = bool(parameter_value)
-            except ValueError as e:
+            
+            if not str(parameter_value).lower() in ["true", "false"]:
                 response.success = False
                 response.message = "Invalid bool value."
                 
                 return response
+            
+            parameter_value = str(parameter_value).lower() == "true"
             
         elif parameter_dict["type"] == "int":
             try:
@@ -723,6 +736,23 @@ class ConfigurationServer(Node):
         response.default_parameter_file = self.get_parameter("default_parameter_file").value
         response.current_parameter_file = os.path.basename(self.params_file)
         
+        return response
+    
+    def set_current_parameter_file_as_default_callback(
+        self,
+        request: SetCurrentParameterFileAsDefault.Request,
+        response: SetCurrentParameterFileAsDefault.Response
+    ) -> SetCurrentParameterFileAsDefault.Response:
+        try:
+            self.set_default_parameter_file(os.path.basename(self.params_file))
+            
+            response.success = True
+            response.message = "Default parameter file set to " + os.path.basename(self.params_file) + "."
+            
+        except Exception as e:
+            response.success = False
+            response.message = "Failed to set default parameter file: " + str(e) + "."
+            
         return response
     
     def validate_parameter_file_name(
