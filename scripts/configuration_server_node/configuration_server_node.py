@@ -5,13 +5,18 @@
 ###############################################################################
 
 import rclpy
-from rclpy.node import Node
+from rclpy.service import Service
+from rclpy.subscription import Subscription
+from rclpy.lifecycle import Node, State, TransitionCallbackReturn
 from rcl_interfaces.msg import ParameterEvent, SetParametersResult
 from rclpy.parameter import Parameter, ParameterValue
 
 import os
 import yaml
 from datetime import datetime
+from typing import Optional
+import time
+import threading
 
 from iii_drone_interfaces.srv import DeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
 
@@ -45,6 +50,73 @@ class ConfigurationServer(Node):
         
         self.get_logger().info("ConfigurationServer.__init__(): Initializing node " + node_name + " in namespace " + namespace + ".")
 
+        self.iii_config_dir: Optional[str] = None
+
+        self.params_dir: Optional[str] = None
+        
+        self.params_dir: Optional[str] = None
+        
+        self.params_file: Optional[str] = None
+        
+        self.ros_params_file: Optional[str] = None
+
+        self.parameter_handler: Optional[ParameterHandler] = None
+
+        self.declared_params: Optional[dict[str, str|int|float|bool|list[str|int|float|bool]]] = None
+        self.parameters_initialized: Optional[dict[str, bool]] = None
+
+        self.param_success: Optional[bool] = None
+
+        self.declare_parameter_service: Optional[Service] = None
+        
+        self.get_parameter_yaml_service: Optional[Service] = None
+        
+        self.get_declared_parameters_service: Optional[Service] = None
+        
+        self.save_parameters_service: Optional[Service] = None
+        
+        self.get_parameter_files_service: Optional[Service] = None
+        
+        self.load_parameters_service: Optional[Service] = None
+        
+        self.set_parameter_from_gc_service: Optional[Service] = None
+        
+        self.get_current_parameter_file_service: Optional[Service] = None
+        
+        self.set_current_parameter_file_as_default_service: Optional[Service] = None
+        
+        self.set_parameter_event_callback_handler: Optional[Callable[[List[Parameter]], SetParametersResult]] = None
+
+        #/parameter_events topic subscriber:
+        self.is_active = False
+        
+        self.parameter_events_subscription = self.create_subscription(
+            ParameterEvent,
+            "/parameter_events",
+            self.parameter_events_callback,
+            10
+        )
+        
+
+        self.get_logger().info("ConfigurationServer.__init__(): Node " + node_name + " initialized successfully, ready for configuration.")
+
+    def __del__(self):
+        self.get_logger().info("ConfigurationServer.__del__(): Deleting ConfigurationServer object.")
+
+        self.on_delete()
+
+    def on_configure(
+        self, 
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("ConfigurationServer.on_configure()")
+        
+        ret = super().on_configure(state)
+        
+        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
+            self.get_logger().error("ConfigurationServer.on_configure(): Base class configuration failed.")
+            return ret
+
         # Get user:
         self.iii_config_dir = os.path.join(os.getenv("CONFIG_BASE_DIR", default="~/.config"), "iii_drone")
 
@@ -60,7 +132,9 @@ class ConfigurationServer(Node):
         params_file = str(self.get_parameter("default_parameter_file").value)
         
         if not self.validate_parameter_file_name(params_file):
-            raise ValueError("ConfigurationServer.__init__(): Default parameter file name " + params_file + " is not valid.")
+            msg = "ConfigurationServer.on_configure(): Default parameter file name " + params_file + " is not valid."
+            self.get_logger().error(msg)
+            return TransitionCallbackReturn.FAILURE
         
         self.params_file = os.path.join(
             self.params_dir,
@@ -75,6 +149,64 @@ class ConfigurationServer(Node):
         self.declared_params = {}
         self.parameters_initialized = {}
 
+        self.param_success = True
+
+        self.get_logger().info("ConfigurationServer.on_configure(): ConfigurationServer configured successfully.")
+
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_cleanup(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("ConfigurationServer.on_cleanup()")
+
+        ret = super().on_cleanup(state)
+        
+        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
+            self.get_logger().error("ConfigurationServer.on_cleanup(): Base class cleanup failed.")
+            return ret
+        
+        self._cleanup()
+        
+        self.get_logger().info("ConfigurationServer.on_cleanup(): ConfigurationServer cleaned up successfully.")
+        
+        return TransitionCallbackReturn.SUCCESS
+        
+    def _cleanup(self):
+        self.get_logger().debug("ConfigurationServer._cleanup(): Cleaning up ConfigurationServer object.")
+
+        self.on_delete()
+        
+        self.iii_config_dir: Optional[str] = None
+
+        self.params_dir: Optional[str] = None
+        
+        self.params_dir: Optional[str] = None
+        
+        self.params_file: Optional[str] = None
+        
+        self.ros_params_file: Optional[str] = None
+
+        self.parameter_handler: Optional[ParameterHandler] = None
+
+        self.declared_params: Optional[dict[str, str|int|float|bool|list[str|int|float|bool]]] = None
+        self.parameters_initialized: Optional[dict[str, bool]] = None
+
+        self.param_success: Optional[bool] = None
+        
+    def on_activate(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("ConfigurationServer.on_activate()")
+
+        ret = super().on_activate(state)
+        
+        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
+            self.get_logger().error("ConfigurationServer.on_activate(): Base class activation failed.")
+            return ret
+        
         # Initialize services:
         self.declare_parameter_service = self.create_service(
             DeclareParameter,
@@ -133,19 +265,122 @@ class ConfigurationServer(Node):
         # Service callback that gets called before a parameter is set:
         self.set_parameter_event_callback_handler = self.add_on_set_parameters_callback(self.set_parameter_event_callback)
 
-        #/parameter_events topic subscriber:
-        self.parameter_events_subscription = self.create_subscription(
-            ParameterEvent,
-            "/parameter_events",
-            self.parameter_events_callback,
-            10
-        )
+        self.is_active = True
 
-        self.param_success = True
+        self.get_logger().info("ConfigurationServer.on_activate(): ConfigurationServer activated successfully.")
+        
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_deactivate(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("ConfigurationServer.on_deactivate()")
+        
+        ret = super().on_deactivate(state)
+        
+        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
+            self.get_logger().error("ConfigurationServer.on_deactivate(): Base class deactivation failed.")
+            return ret
+        
+        self._deactivate()
+        
+        self.get_logger().info("ConfigurationServer.on_deactivate(): ConfigurationServer deactivated successfully.")
+        
+        return TransitionCallbackReturn.SUCCESS
+        
+    def _deactivate(self):
+        self.get_logger().debug("ConfigurationServer._deactivate(): Deactivating ConfigurationServer object.")
+
+        if self.declare_parameter_service is not None:
+            self.declare_parameter_service.destroy()
+            self.declare_parameter_service = None
+
+        if self.get_parameter_yaml_service is not None:
+            self.get_parameter_yaml_service.destroy()
+            self.get_parameter_yaml_service = None
+
+        if self.get_declared_parameters_service is not None:
+            self.get_declared_parameters_service.destroy()
+            self.get_declared_parameters_service = None
+
+        if self.save_parameters_service is not None:
+            self.save_parameters_service.destroy()
+            self.save_parameters_service = None
+
+        if self.get_parameter_files_service is not None:
+            self.get_parameter_files_service.destroy()
+            self.get_parameter_files_service = None
+
+        if self.load_parameters_service is not None:
+            self.load_parameters_service.destroy()
+            self.load_parameters_service = None
+
+        if self.set_parameter_from_gc_service is not None:
+            self.set_parameter_from_gc_service.destroy()
+            self.set_parameter_from_gc_service = None
+
+        if self.get_current_parameter_file_service is not None:
+            self.get_current_parameter_file_service.destroy()
+            self.get_current_parameter_file_service = None
+
+        if self.set_current_parameter_file_as_default_service is not None:
+            self.set_current_parameter_file_as_default_service.destroy()
+            self.set_current_parameter_file_as_default_service = None
+
+        if self.set_parameter_event_callback_handler is not None:
+            self.remove_on_set_parameters_callback(self.set_parameter_event_callback_handler)
+            self.set_parameter_event_callback_handler = None
+
+        self.is_active = False
+        
+    def on_shutdown(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("ConfigurationServer.on_shutdown()")
+        
+        ret = super().on_shutdown(state)
+        
+        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
+            self.get_logger().error("ConfigurationServer.on_shutdown(): Base class shutdown failed.")
+            return ret
+        
+        self._deactivate()
+        self._cleanup()
+        
+        self.get_logger().info("ConfigurationServer.on_shutdown(): ConfigurationServer shut down successfully.")
+
+        def shutdown_rclpy():
+            time.sleep(1)
+            rclpy.shutdown()
+
+        thread = threading.Thread(target=shutdown_rclpy)
+        thread.start()
+        
+        return TransitionCallbackReturn.SUCCESS
+    
+    def on_error(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("ConfigurationServer.on_error()")
+        
+        ret = super().on_error(state)
+        
+        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
+            self.get_logger().error("ConfigurationServer.on_error(): Base class error failed.")
+            return ret
+        
+        self._deactivate()
+        self._cleanup()
         
     def on_delete(self):
         self.get_logger().info("ConfigurationServer.on_delete(): Deleting ConfigurationServer object.")
 
+        if self.parameter_handler is None:
+            return
+        
         if self.parameter_handler.any_params_changed:
             self.get_logger().info("ConfigurationServer.on_delete(): Parameters changed, saving...")
 
@@ -242,6 +477,9 @@ class ConfigurationServer(Node):
             RuntimeError: If parameters are deleted, since this is not supported.
             RuntimeError: If the param can not be set for whatever reason, since this should not happen as it is verified in the pre-set parameter callback.
         """
+
+        if not self.is_active:
+            return
 
         if parameter_event.node != self.get_fully_qualified_name():
             return
@@ -555,7 +793,7 @@ class ConfigurationServer(Node):
         self.get_logger().info("ConfigurationServer.load_parameters_callback(): Request to load parameters from file " + request.file + ".")
 
         if self.parameter_handler.any_params_changed:
-            self.get_logger().info("ConfigurationServer.on_delete(): Parameters changed, saving...")
+            self.get_logger().info("ConfigurationServer.load_parameters_callback(): Parameters changed, saving...")
 
             tmp_request = SaveParameters.Request()
             tmp_request.file = ""
@@ -565,9 +803,9 @@ class ConfigurationServer(Node):
             tmp_response = self.save_parameters_callback(tmp_request, SaveParameters.Response())
             
             if not response.success:
-                self.get_logger().fatal("ConfigurationServer.on_delete(): Failed to save parameters: " + tmp_response.message + ".")
+                self.get_logger().fatal("ConfigurationServer.load_parameters_callback(): Failed to save parameters: " + tmp_response.message + ".")
             else:
-                self.get_logger().info("ConfigurationServer.on_delete(): Parameters saved successfully to file " + tmp_response.file + ".")
+                self.get_logger().info("ConfigurationServer.load_parameters_callback(): Parameters saved successfully to file " + tmp_response.file + ".")
         
         if not self.validate_parameter_file_name(request.file):
             response.success = False
@@ -831,9 +1069,14 @@ def main():
     node = ConfigurationServer()
 
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        node.on_delete()
+        executor = rclpy.executors.MultiThreadedExecutor()
+        executor.add_node(node)
+        executor.spin()
+        # rclpy.spin(node)
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException, rclpy.exceptions.ROSInterruptException):
+        
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == "__main__":
     main()
