@@ -110,11 +110,11 @@ install(TARGETS iii_drone_configuration_lib
 # Install Python modules
 ament_python_install_package(${PROJECT_NAME})
 # Install Python executables
-install(PROGRAMS
-  "${PROJECT_SOURCE_DIR}/scripts/configuration_server_node/configuration_server_node.py"
-  "${PROJECT_SOURCE_DIR}/scripts/configuration_client_node/configuration_client_node.py"
-  DESTINATION lib/${PROJECT_NAME}
-)
+# install(PROGRAMS
+#   "${PROJECT_SOURCE_DIR}/scripts/configuration_server_node/configuration_server_node.py"
+#   "${PROJECT_SOURCE_DIR}/scripts/configuration_client_node/configuration_client_node.py"
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 
 # Export information to downstream packages
 if(ROS_DISTRO IN_LIST ROS_DISTROS)
@@ -130,3 +130,13 @@ install(DIRECTORY
 )
 
 ament_package()
+
+set(python_programs
+  "${PROJECT_NAME}/configuration_server_node.py"
+  "${PROJECT_NAME}/configuration_client_node.py"
+)
+
+install(
+  PROGRAMS ${python_programs}
+  DESTINATION lib/${PROJECT_NAME}
+)
