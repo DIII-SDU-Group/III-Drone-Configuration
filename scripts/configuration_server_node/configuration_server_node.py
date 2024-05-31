@@ -187,11 +187,12 @@ class ConfigurationServer(Node):
 
         self.on_delete()
 
-        for key, value in self.declared_params.items():
-            try:
-                self.undeclare_parameter(key)
-            except ParameterNotDeclaredException as e:
-                pass
+        if self.declared_params is not None:
+            for key, value in self.declared_params.items():
+                try:
+                    self.undeclare_parameter(key)
+                except ParameterNotDeclaredException as e:
+                    pass
         
         self.iii_config_dir: Optional[str] = None
 
