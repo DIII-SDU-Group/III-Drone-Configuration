@@ -10,6 +10,7 @@ from rclpy.subscription import Subscription
 from rclpy.lifecycle import Node, State, TransitionCallbackReturn
 from rcl_interfaces.msg import ParameterEvent, SetParametersResult
 from rclpy.parameter import Parameter, ParameterValue
+from rclpy.exceptions import ParameterNotDeclaredException
 
 import os
 import yaml
@@ -128,8 +129,6 @@ class ConfigurationServer(Node):
 
 
         parameters_path_postfix = str(self.get_parameter("parameters_path_postfix").value)
-        # if self.cnt == 0:
-        #     return TransitionCallbackReturn.SUCCESS
         
         self.params_dir = os.path.join(self.iii_config_dir, parameters_path_postfix)
 
@@ -187,6 +186,12 @@ class ConfigurationServer(Node):
         self.get_logger().debug("ConfigurationServer._cleanup(): Cleaning up ConfigurationServer object.")
 
         self.on_delete()
+
+        for key, value in self.declared_params.items():
+            try:
+                self.undeclare_parameter(key)
+            except ParameterNotDeclaredException as e:
+                pass
         
         self.iii_config_dir: Optional[str] = None
 
