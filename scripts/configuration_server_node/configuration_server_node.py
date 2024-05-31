@@ -50,6 +50,9 @@ class ConfigurationServer(Node):
         
         self.get_logger().info("ConfigurationServer.__init__(): Initializing node " + node_name + " in namespace " + namespace + ".")
 
+        self.declare_parameter("parameters_path_postfix", "parameters")
+        self.declare_parameter("default_parameter_file", "parameters.yaml")
+
         self.iii_config_dir: Optional[str] = None
 
         self.params_dir: Optional[str] = None
@@ -96,12 +99,15 @@ class ConfigurationServer(Node):
             self.parameter_events_callback,
             10
         )
-        
 
         self.get_logger().info("ConfigurationServer.__init__(): Node " + node_name + " initialized successfully, ready for configuration.")
 
     def __del__(self):
-        self.get_logger().info("ConfigurationServer.__del__(): Deleting ConfigurationServer object.")
+        if rclpy.ok():
+            self.get_logger().info("ConfigurationServer.__del__(): Deleting ConfigurationServer object.")
+        else:
+            # Print to console if rclpy is not ok
+            print("ConfigurationServer.__del__(): Deleting ConfigurationServer object.")
 
         self.on_delete()
 
@@ -112,7 +118,7 @@ class ConfigurationServer(Node):
         self.get_logger().info("ConfigurationServer.on_configure()")
         
         ret = super().on_configure(state)
-        
+
         if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
             self.get_logger().error("ConfigurationServer.on_configure(): Base class configuration failed.")
             return ret
@@ -120,14 +126,16 @@ class ConfigurationServer(Node):
         # Get user:
         self.iii_config_dir = os.path.join(os.getenv("CONFIG_BASE_DIR", default="~/.config"), "iii_drone")
 
-        self.declare_parameter("parameters_path_postfix", "parameters")
+
         parameters_path_postfix = str(self.get_parameter("parameters_path_postfix").value)
+        # if self.cnt == 0:
+        #     return TransitionCallbackReturn.SUCCESS
+        
         self.params_dir = os.path.join(self.iii_config_dir, parameters_path_postfix)
+
         
         # Replace "~" with "/home/<user>" in the path
         self.params_dir = self.params_dir.replace("~", os.getenv("HOME"))
-        
-        self.declare_parameter("default_parameter_file", "parameters.yaml")
         
         params_file = str(self.get_parameter("default_parameter_file").value)
         
@@ -150,6 +158,8 @@ class ConfigurationServer(Node):
         self.parameters_initialized = {}
 
         self.param_success = True
+
+        self.cnt = 1
 
         self.get_logger().info("ConfigurationServer.on_configure(): ConfigurationServer configured successfully.")
 
@@ -376,13 +386,21 @@ class ConfigurationServer(Node):
         self._cleanup()
         
     def on_delete(self):
-        self.get_logger().info("ConfigurationServer.on_delete(): Deleting ConfigurationServer object.")
+        if rclpy.ok():
+            self.get_logger().info("ConfigurationServer.on_delete(): Deleting ConfigurationServer object.")
+        else:
+            # Print to console if rclpy is not ok
+            print("ConfigurationServer.on_delete(): Deleting ConfigurationServer object.")
 
         if self.parameter_handler is None:
             return
         
         if self.parameter_handler.any_params_changed:
-            self.get_logger().info("ConfigurationServer.on_delete(): Parameters changed, saving...")
+            if rclpy.ok():
+                self.get_logger().info("ConfigurationServer.on_delete(): Parameters changed, saving...")
+            else:
+                # Print to console if rclpy is not ok
+                print("ConfigurationServer.on_delete(): Parameters changed, saving...")
 
             request = SaveParameters.Request()
             request.file = ""
@@ -391,10 +409,17 @@ class ConfigurationServer(Node):
 
             response = self.save_parameters_callback(request, SaveParameters.Response())
             
-            if not response.success:
-                self.get_logger().fatal("ConfigurationServer.on_delete(): Failed to save parameters: " + response.message + ".")
+            if rclpy.ok():
+                if not response.success:
+                    self.get_logger().fatal("ConfigurationServer.on_delete(): Failed to save parameters: " + response.message + ".")
+                else:
+                    self.get_logger().info("ConfigurationServer.on_delete(): Parameters saved successfully to file " + response.file + ".")
             else:
-                self.get_logger().info("ConfigurationServer.on_delete(): Parameters saved successfully to file " + response.file + ".")
+                # Print to console if rclpy is not ok
+                if not response.success:
+                    print("ConfigurationServer.on_delete(): Failed to save parameters: " + response.message + ".")
+                else:
+                    print("ConfigurationServer.on_delete(): Parameters saved successfully to file " + response.file + ".")
         
     def set_parameter_event_callback(
         self,
