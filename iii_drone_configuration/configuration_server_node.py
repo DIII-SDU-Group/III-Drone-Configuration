@@ -19,7 +19,7 @@ from typing import Optional
 import time
 import threading
 
-from iii_drone_interfaces.srv import DeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
+from iii_drone_interfaces.srv import DeclareParameter, UndeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
 
 from iii_drone_configuration.parameter_handler import ParameterHandler
 
@@ -67,11 +67,14 @@ class ConfigurationServer(Node):
         self.parameter_handler: Optional[ParameterHandler] = None
 
         self.declared_params: Optional[dict[str, str|int|float|bool|list[str|int|float|bool]]] = None
+        self.declared_params_nodes: Optional[dict[str, list[str]]] = None
         self.parameters_initialized: Optional[dict[str, bool]] = None
 
         self.param_success: Optional[bool] = None
 
         self.declare_parameter_service: Optional[Service] = None
+        
+        self.undeclare_parameter_service: Optional[Service] = None
         
         self.get_parameter_yaml_service: Optional[Service] = None
         
@@ -154,6 +157,7 @@ class ConfigurationServer(Node):
 
         # Declared params empty dict:
         self.declared_params = {}
+        self.declared_params_nodes = {}
         self.parameters_initialized = {}
 
         self.param_success = True
@@ -207,6 +211,7 @@ class ConfigurationServer(Node):
         self.parameter_handler: Optional[ParameterHandler] = None
 
         self.declared_params: Optional[dict[str, str|int|float|bool|list[str|int|float|bool]]] = None
+        self.declared_params_nodes: Optional[dict[str, list[str]]] = None
         self.parameters_initialized: Optional[dict[str, bool]] = None
 
         self.param_success: Optional[bool] = None
@@ -228,6 +233,12 @@ class ConfigurationServer(Node):
             DeclareParameter,
             "declare_parameter",
             self.declare_parameter_callback
+        )
+        
+        self.undeclare_parameter_service = self.create_service(
+            UndeclareParameter,
+            "undeclare_parameter",
+            self.undeclare_parameter_callback
         )
         
         self.get_parameter_yaml_service = self.create_service(
@@ -652,9 +663,16 @@ class ConfigurationServer(Node):
 
             return response
 
+        if request.node_name == "":
+            response.succeeded = False
+            response.message = "Node name is empty."
+
+            return response
+
         self.get_logger().info("ConfigurationServer.declare_parameter_callback(): Declaring parameter " + request.name + " with value " + str(param_dict["value"]) + " of type " + str(param_dict["type"]) + ".")
         
         if already_declared:
+            self.declared_params_nodes[request.name].append(request.node_name)
             response.succeeded = True
             response.message = "Parameter already declared."
 
@@ -663,15 +681,67 @@ class ConfigurationServer(Node):
         value = param_dict["value"]
 
         self.declare_parameter(
-            request.name, 
+            request.name,
             value
         )
 
         self.declared_params[request.name] = value
+        self.declared_params_nodes[request.name] = [request.node_name]
         self.parameters_initialized[request.name] = False
 
         response.succeeded = True
         response.message = "Parameter declared successfully."
+
+        return response
+
+    def undeclare_parameter_callback(
+        self,
+        request: UndeclareParameter.Request,
+        response: UndeclareParameter.Response
+    ) -> UndeclareParameter.Response:
+        """
+        Callback for undeclare_parameter service. Removes the node from list of nodes that declared the parameter.
+        If the node name is the last one, undeclares the parameter.
+
+        Parameters:
+            request (UndeclareParameter.Request): Service request.
+            response (UndeclareParameter.Response): Service response.
+
+        Returns:
+            UndeclareParameter.Response: Service response.
+        """
+
+        if request.name not in self.declared_params:
+            response.succeeded = False
+            response.message = "Parameter not declared."
+
+            return response
+
+        if request.node_name not in self.declared_params_nodes[request.name]:
+            response.succeeded = False
+            response.message = "Node has not declared parameter."
+
+            return response
+
+        self.get_logger().info("ConfigurationServer.undeclare_parameter_callback(): Undeclaring parameter " + request.name + ".")
+
+        self.declared_params_nodes[request.name].remove(request.node_name)
+        
+        if self.declared_params_nodes[request.name] != []:
+            response.succeeded = True
+            response.message = "Node undeclared from parameter."
+
+            return response
+
+        self.undeclare_parameter(request.name)
+
+        # del self.declared_params[request.name]
+        # del self.declared_params_nodes[request.name]
+        self.declared_params.pop(request.name)
+        self.declared_params_nodes.pop(request.name)
+
+        response.succeeded = True
+        response.message = "Parameter fully undeclared."
 
         return response
     

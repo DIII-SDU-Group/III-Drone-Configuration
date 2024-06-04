@@ -31,6 +31,7 @@ link_directories(src/matlab_MPC_5Hz_hp10)
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(iii_drone_interfaces REQUIRED)
@@ -91,6 +92,7 @@ target_link_libraries(iii_drone_configuration_lib
 
 ament_target_dependencies(iii_drone_configuration_lib
   rclcpp
+  rclcpp_lifecycle
   iii_drone_interfaces
 )
 

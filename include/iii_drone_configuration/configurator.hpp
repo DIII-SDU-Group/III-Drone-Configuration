@@ -13,6 +13,7 @@
 // III-Drone-Interfaces:
 
 #include <iii_drone_interfaces/srv/declare_parameter.hpp>
+#include <iii_drone_interfaces/srv/undeclare_parameter.hpp>
 
 /*****************************************************************************/
 // ROS2:
@@ -52,6 +53,7 @@ namespace configuration {
  * The class declares a ROS2 parameter, node_parameters_dir. Here, it looks for the file with the same name
  * as the node. If the file doesn't exist, it will fail.
 */
+template <typename nodeT>
 class Configurator {
 public:
     /**
@@ -61,7 +63,7 @@ public:
      * @param after_parameter_change_callback Callback function called after successful parameter change, default is nullptr
      */
     Configurator(
-        rclcpp::Node *node,
+        nodeT *node,
         std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback = nullptr
     );
 
@@ -73,7 +75,7 @@ public:
      * @param after_parameter_change_callback Callback function called after successful parameter change, default is nullptr
      */
     Configurator(
-        rclcpp::Node *node,
+        nodeT *node,
         const rclcpp::QoS &qos,
         std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback = nullptr
     );
@@ -154,7 +156,12 @@ private:
     /*
     * @brief Reference to the handling node.
     */
-    rclcpp::Node *node_;
+    nodeT *node_;
+
+    /**
+     * @brief Configurator node.
+     */
+    rclcpp::Node::SharedPtr configurator_node_;
 
     /**
      * @brief Parameter bundles.
@@ -201,6 +208,15 @@ private:
     void declareParameter(const std::string & parameter_full_name);
 
     /**
+     * @brief Undeclares a parameter from the node.
+     * 
+     * @param parameter_full_name Name of the parameter
+     * 
+     * @return void
+     */
+    void undeclareParameter(const std::string & parameter_full_name);
+
+    /**
      * @brief Gets the full name of a parameter.
      * 
      * @param simple_name Simple name of the parameter
@@ -233,6 +249,11 @@ private:
      */
     std::unique_ptr<rclcpp::QoS> qos_ = nullptr;
 
+    /**
+     * @brief Service client callback group
+     */
+    rclcpp::CallbackGroup::SharedPtr service_client_callback_group_;
+
     /*
     * @brief Mutex for access to the parameters vector.
     */
@@ -242,6 +263,11 @@ private:
      * @brief DeclareParameter service client.
      */
     rclcpp::Client<iii_drone_interfaces::srv::DeclareParameter>::SharedPtr declare_parameter_client_;
+
+    /**
+     * @brief UndeclareParameter service client.
+     */
+    rclcpp::Client<iii_drone_interfaces::srv::UndeclareParameter>::SharedPtr undeclare_parameter_client_;
 
     /**
      * @brief GetParameters service client.
@@ -279,6 +305,19 @@ private:
     bool sendDeclareParameterRequest(
         const std::string & name,
         const std::string & type,
+        std::string & message
+    );
+
+    /**
+     * @brief Sends an UndeclareParameter request to the ConfigurationServer node,
+     * 
+     * @param name Name of the parameter
+     * @param message Message out reference
+     * 
+     * @return bool True if the parameter was undeclared successfully, false otherwise
+     */
+    bool sendUndeclareParameterRequest(
+        const std::string & name,
         std::string & message
     );
 

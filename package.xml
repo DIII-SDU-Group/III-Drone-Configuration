@@ -13,6 +13,7 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
   <depend>builtin_interfaces</depend>
   <depend>iii_drone_interfaces</depend>
 
