@@ -11,6 +11,9 @@ parameters:
   landed_altitude_threshold:
     name: "/control/maneuver_controller/landed_altitude_threshold"
     type: "float"
+  landed_altitude_threshold_on_start:
+    name: "/control/maneuver_controller/landed_altitude_threshold_on_start"
+    type: "float"
   on_cable_max_euc_distance:
     name: "/control/maneuver_controller/on_cable_max_euc_distance"
     type: "float"
@@ -133,6 +136,9 @@ parameter_bundles:
       update: false
     landed_altitude_threshold:
       remap_name: "landed_altitude_threshold"
+      update: true
+    landed_altitude_threshold_on_start:
+      remap_name: "landed_altitude_threshold_on_start"
       update: true
     on_cable_max_euc_distance:
       remap_name: "on_cable_max_euc_distance"
