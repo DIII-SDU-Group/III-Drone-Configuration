@@ -84,11 +84,6 @@ perception:
       type: float
       value: 3.0
       min: 0.1
-    init_sleep_time_ms:
-      type: int
-      value: 1000
-      min: 0
-      constant: true
     predict_callback_period_ms:
       type: int
       value: 25

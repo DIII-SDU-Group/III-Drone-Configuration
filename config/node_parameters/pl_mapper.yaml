@@ -38,9 +38,6 @@ parameters:
   matching_line_max_dist:
     name: "/perception/pl_mapper/matching_line_max_dist"
     type: "float"
-  init_sleep_time_ms:
-    name: "/perception/pl_mapper/init_sleep_time_ms"
-    type: "int"
   predict_callback_period_ms:
     name: "/perception/pl_mapper/predict_callback_period_ms"
     type: "int"
