@@ -15,11 +15,11 @@ fi
 
 mkdir -p $target_config_dir/iii_drone/parameters/
 
-if [ ! -f $target_config_dir/iii_drone/parameters/parameters.yaml ]; then
+# if [ ! -f $target_config_dir/iii_drone/parameters/parameters.yaml ]; then
     cp $CONFIG_DIR/parameters.yaml $target_config_dir/iii_drone/parameters/parameters.yaml
-else
-    $SCRIPT_DIR/update_installed_parameters.py $CONFIG_DIR/parameters.yaml $target_config_dir/iii_drone/parameters/
-fi
+# else
+#     $SCRIPT_DIR/update_installed_parameters.py $CONFIG_DIR/parameters.yaml $target_config_dir/iii_drone/parameters/
+# fi
 
 cp -f $CONFIG_DIR/ros_params.yaml $target_config_dir/iii_drone/ros_params.yaml
 rm -rf $target_config_dir/iii_drone/node_parameters 2> /dev/null
