@@ -451,7 +451,7 @@ class ConfigurationClientForm(npyscreen.FormBaseNew):
             # Every character, number, / and backspace:
         })
 
-        for char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/_":
+        for char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/_.":
             self.table.add_handlers({
                 ord(char): self.h_search,
             })
@@ -943,22 +943,15 @@ def main(args=None):
         
     print("Parameter handler updated")
     
+    try:
+        app = ConfigurationClientApp(node)
+        app.run()
+        
+    except KeyboardInterrupt:
+        pass
     
-    # print("Sleeping 2")
-    
-    # time.sleep(2)
-    
-    # print("Calling save parameters")
-    
-    # node.call_save_parameters("test.yaml", False, False, lambda future: print(future.result()))
-    
-    # while True:
-    #     time.sleep(1)
-
-    app = ConfigurationClientApp(node)
-    app.run()
-    
-    rclpy.shutdown()
+    if rclpy.ok():
+        rclpy.shutdown()
     
 if __name__ == "__main__":
     main()
