@@ -711,7 +711,7 @@ class ConfigurationServer(Node):
             UndeclareParameter.Response: Service response.
         """
 
-        if request.name not in self.declared_params:
+        if self.declared_params is None or request.name not in self.declared_params:
             response.succeeded = False
             response.message = "Parameter not declared."
 
