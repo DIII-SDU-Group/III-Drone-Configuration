@@ -14,7 +14,7 @@ import rclpy
 @dataclass
 class ParameterBundleEntry:
     parameter: rclpy.parameter.Parameter
-    simple_nmae: str
+    simple_name: str
     remap_name: str
     update: bool
 
