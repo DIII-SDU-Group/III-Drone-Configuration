@@ -48,6 +48,22 @@ class ConfigurationServer(Node):
             node_name=node_name, 
             namespace=namespace
         )
+
+        log_level = os.environ.get('CONFIGURATION_SERVER_LOG_LEVEL')
+        
+        if log_level is not None:
+            log_level = log_level.upper()
+            
+            if log_level == 'DEBUG':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.DEBUG)
+            elif log_level == 'INFO':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
+            elif log_level == 'WARN':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.WARN)
+            elif log_level == 'ERROR':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.ERROR)
+            elif log_level == 'FATAL':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)
         
         self.get_logger().info("ConfigurationServer.__init__(): Initializing node " + node_name + " in namespace " + namespace + ".")
 
