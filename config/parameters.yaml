@@ -113,45 +113,6 @@ sensor:
       type: string
       value: /dev/ttyUSB1
       constant: true
-  usb_cam:
-    video_device:
-      type: string
-      value: /dev/video0
-      constant: true
-    framerate:
-      type: float
-      value: 10.0
-      constant: true
-      min: 1.0
-      max: 30.0
-    io_method:
-      type: string
-      value: mmap
-      constant: true
-    frame_id:
-      type: string
-      value: camera
-      constant: true
-    pixel_format:
-      type: string
-      value: yuyv
-      constant: true
-    image_width:
-      type: int
-      value: 640
-      constant: true
-    image_height:
-      type: int
-      value: 480
-      constant: true
-    camera_name:
-      type: string
-      value: test_camera
-      constant: true
-    camera_info_url:
-      type: string
-      value: package://usb_cam/config/camera_info.yaml
-      constant: true
 control:
   maneuver_controller:
     ground_estimate_window_size:
