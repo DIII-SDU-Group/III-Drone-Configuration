@@ -1,6 +1,6 @@
 parameters:
-  pl_mapper_begin_running:
-    name: "/perception/pl_mapper/pl_mapper_begin_running"
+  begin_running:
+    name: "/perception/begin_running"
     type: "bool"
   kf_r:
     name: "/perception/pl_mapper/kf_r"

@@ -1,4 +1,7 @@
 parameters:
+  begin_running:
+    name: "/perception/begin_running"
+    type: "bool"
   canny_low_threshold:
     name: "/perception/hough_transformer/canny_low_threshold"
     type: "int"

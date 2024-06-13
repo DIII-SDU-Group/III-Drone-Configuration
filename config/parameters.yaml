@@ -1,4 +1,9 @@
 perception:
+  begin_running:
+    type: bool
+    value: false
+    constant: true
+
   hough_transformer:
     canny_low_threshold:
       type: int
@@ -24,10 +29,6 @@ perception:
       value: 25
       constant: true
   pl_mapper:
-    pl_mapper_begin_running:
-      type: bool
-      value: false
-      constant: true
     kf_r:
       type: float
       value: 0.999
