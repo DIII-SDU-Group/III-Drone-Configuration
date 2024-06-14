@@ -918,6 +918,8 @@ bool Configurator<nodeT>::sendDeclareParameterRequest(
 
     auto result = future.get();
 
+    message = result->message;
+
     return result->succeeded;
 
 }

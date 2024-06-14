@@ -669,48 +669,72 @@ payload:
       type: int
       value: 10
       min: 1
+# mission:
+#   continuous_mission_orchestrator:
+#     under_cable_target_distance:
+#       type: float
+#       value: 1.5
+#       min: 0.5
+#       max: 2.0
+#     use_charger_gripper_info:
+#       type: bool
+#       value: true
+#       constant: true
+#     cable_landing_max_retries:
+#       type: int
+#       value: 3
+#       min: 1
+#       max: 10
+#     battery_voltage_low_threshold:
+#       type: float
+#       value: 22.2
+#       min: 19.0
+#       max: 25.2
+#     battery_voltage_high_threshold:
+#       type: float
+#       value: 25.0
+#       min: 19.0
+#       max: 25.2
+#     charging_power_low_threshold:
+#       type: float
+#       value: 0.1
+#       min: 0.01
+#     action_timeout_ms:
+#       type: int
+#       value: 1000
+#       min: 1
+#     charging_minimum_duration_s:
+#       type: int
+#       value: 10
+#       min: 0
+#     charging_maximum_duration_s:
+#       type: int
+#       value: -1
+#       min: -1
 mission:
-  continuous_mission_orchestrator:
-    under_cable_target_distance:
-      type: float
-      value: 1.5
-      min: 0.5
-      max: 2.0
-    use_charger_gripper_info:
-      type: bool
-      value: true
-      constant: true
-    cable_landing_max_retries:
-      type: int
-      value: 3
-      min: 1
-      max: 10
-    battery_voltage_low_threshold:
-      type: float
-      value: 22.2
-      min: 19.0
-      max: 25.2
-    battery_voltage_high_threshold:
-      type: float
-      value: 25.0
-      min: 19.0
-      max: 25.2
-    charging_power_low_threshold:
-      type: float
-      value: 0.1
-      min: 0.01
-    action_timeout_ms:
-      type: int
-      value: 1000
-      min: 1
-    charging_minimum_duration_s:
-      type: int
-      value: 10
-      min: 0
-    charging_maximum_duration_s:
-      type: int
-      value: -1
-      min: -1
+  mission_specification_file:
+    type: string
+    value: "$MISSION_SPECIFICATION_DIR/mission_specification.yaml"
+    constant: true
+  
+  use_nans_when_hovering:
+    type: bool
+    value: true
+    constant: false
+  max_failed_attempts_during_maneuver:
+    type: int
+    value: 3
+    min: 1
+    max: 10
+    constant: false
+  # get_reference_timeout_ms:
+  #   type: int
+  #   value: 100
+  #   min: 10
+  #   max: "/control/dt * 1000 / 2"
+  #   constant: false
+
+
 behavior:
   server_timeout_ms:
     type: int
@@ -723,10 +747,6 @@ behavior:
     value: 1000
     min: 10
     max: 10000
-    constant: true
-  tree_xml_file:
-    type: string
-    value: /home/ffn/Workspace/ros2_humble_ws/src/III-Drone-Core/behavior_trees/test_tree.xml
     constant: true
   tick_period_ms:
     type: int
@@ -753,6 +773,7 @@ behavior:
     - closest_xy_above
     - closest_z_above
     - farthest_above
+
 tf:
   world_frame_id:
     type: string

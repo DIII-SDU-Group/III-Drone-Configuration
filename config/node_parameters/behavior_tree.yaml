@@ -5,9 +5,6 @@ parameters:
   wait_for_server_timeout_ms:
     name: "/behavior/wait_for_server_timeout_ms"
     type: "int"
-  tree_xml_file:
-    name: "/behavior/tree_xml_file"
-    type: "string"
   tick_period_ms:
     name: "/behavior/tick_period_ms"
     type: "int"
@@ -26,9 +23,7 @@ parameters:
   select_target_line_method:
     name: "/behavior/select_target_line_method"
     type: "string"
-  dt:
-    name: "/control/dt"
-    type: "float"
+
   drone_frame_id:
     name: "/tf/drone_frame_id"
     type: "string"
@@ -37,23 +32,6 @@ parameters:
     type: "string"
 
 parameter_bundles:
-  take_charging_position_tree:
-    server_timeout_ms:
-      remap_name: "server_timeout_ms"
-      update: false
-    wait_for_server_timeout_ms:
-      remap_name: "wait_for_server_timeout_ms"
-      update: false
-    tree_xml_file:
-      remap_name: "tree_xml_file"
-      update: false
-    tick_period_ms:
-      remap_name: "tick_period_ms"
-      update: false
-    dt:
-      remap_name: "dt"
-      update: false
-
   fly_to_object_maneuver_action_node:
     target_cable_distance:
       remap_name: "target_cable_distance"

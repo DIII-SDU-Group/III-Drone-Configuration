@@ -1,0 +1,35 @@
+parameters:
+  mission_specification_file:
+    name: "/mission/mission_specification_file"
+    type: "string"
+  use_nans_when_hovering:
+    name: "/mission/use_nans_when_hovering"
+    type: "bool"
+  max_failed_attempts_during_maneuver:
+    name: "/mission/max_failed_attempts_during_maneuver"
+    type: "int"
+  dt:
+    name: "/control/dt"
+    type: "float"
+
+  # tick_period_ms:
+  #   name: "/behavior/tick_period_ms"
+  #   type: "int"
+
+parameter_bundles:
+  maneuver_reference_client:
+    use_nans_when_hovering:
+      remap_name: "use_nans_when_hovering"
+      update: true
+    max_failed_attempts_during_maneuver:
+      remap_name: "max_failed_attempts_during_maneuver"
+      update: true
+    # get_reference_timeout_ms:
+    #   remap_name: "get_reference_timeout_ms"
+    #   update: true
+
+  mode_provider:
+    dt:
+      remap_name: "maneuver_setpoint_dt"
+      update: false
+
