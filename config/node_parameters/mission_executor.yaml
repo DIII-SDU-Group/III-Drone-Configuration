@@ -8,13 +8,15 @@ parameters:
   max_failed_attempts_during_maneuver:
     name: "/mission/max_failed_attempts_during_maneuver"
     type: "int"
+  wait_for_maneuver_start_timeout_ms:
+    name: "/mission/wait_for_maneuver_start_timeout_ms"
+    type: "int"
   dt:
     name: "/control/dt"
     type: "float"
-
-  # tick_period_ms:
-  #   name: "/behavior/tick_period_ms"
-  #   type: "int"
+  get_reference_timeout_ms:
+    name: "/mission/get_reference_timeout_ms"
+    type: "int"
 
 parameter_bundles:
   maneuver_reference_client:
@@ -24,9 +26,12 @@ parameter_bundles:
     max_failed_attempts_during_maneuver:
       remap_name: "max_failed_attempts_during_maneuver"
       update: true
-    # get_reference_timeout_ms:
-    #   remap_name: "get_reference_timeout_ms"
-    #   update: true
+    wait_for_maneuver_start_timeout_ms:
+      remap_name: "wait_for_maneuver_start_timeout_ms"
+      update: true
+    get_reference_timeout_ms:
+      remap_name: "get_reference_timeout_ms"
+      update: true
 
   mode_provider:
     dt:

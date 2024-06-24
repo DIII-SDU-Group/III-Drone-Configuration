@@ -13,6 +13,7 @@ from rclpy.parameter import Parameter, ParameterValue
 from rclpy.exceptions import ParameterNotDeclaredException
 
 import os
+import sys
 import yaml
 from datetime import datetime
 from typing import Optional
@@ -22,6 +23,15 @@ import threading
 from iii_drone_interfaces.srv import DeclareParameter, UndeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
 
 from iii_drone_configuration.parameter_handler import ParameterHandler
+
+#########################################################################
+# Debugging:
+#########################################################################
+
+SIMULATION = os.environ.get('SIMULATION', 'false').lower() == 'true'
+
+if SIMULATION:
+    import debugpy
 
 ###############################################################################
 # Class
@@ -1180,7 +1190,20 @@ class ConfigurationServer(Node):
 ###############################################################################
 
 def main():
-    rclpy.init()
+    if SIMULATION:
+        DEBUG_PORT = int(os.environ.get('CONFIGURATION_SERVER_DEBUG_PORT', 0))
+        
+        if DEBUG_PORT > 0:
+            debugpy.listen(
+                (
+                    'localhost',
+                    DEBUG_PORT
+                )
+            )
+            
+            print("Listening for debugger on port " + str(DEBUG_PORT))
+
+    rclpy.init(args=sys.argv)
 
     print("Starting ConfigurationServer node...")
     node = ConfigurationServer()

@@ -254,10 +254,10 @@ parameter_bundles:
     
   cable_landing_MPC:
     MPC_use_state_feedback:
-      remap_name: "MPC_use_state_feedback"
+      remap_name: "use_state_feedback"
       update: true
     MPC_N:
-      remap_name: "MPC_N"
+      remap_name: "N"
       update: false
     dt:
       remap_name: "dt"
@@ -325,10 +325,10 @@ parameter_bundles:
 
   cable_takeoff_MPC:
     MPC_use_state_feedback:
-      remap_name: "MPC_use_state_feedback"
+      remap_name: "use_state_feedback"
       update: true
     MPC_N:
-      remap_name: "MPC_N"
+      remap_name: "N"
       update: false
     dt:
       remap_name: "dt"

@@ -23,6 +23,12 @@ parameters:
   select_target_line_method:
     name: "/behavior/select_target_line_method"
     type: "string"
+  hover_on_cable_target_z_velocity:
+    name: "/behavior/hover_on_cable_target_z_velocity"
+    type: "float"
+  hover_on_cable_target_yaw_rate:
+    name: "/behavior/hover_on_cable_target_yaw_rate"
+    type: "float"
 
   drone_frame_id:
     name: "/tf/drone_frame_id"
@@ -32,7 +38,7 @@ parameters:
     type: "string"
 
 parameter_bundles:
-  fly_to_object_maneuver_action_node:
+  target_provider:
     target_cable_distance:
       remap_name: "target_cable_distance"
       update: true
@@ -61,3 +67,11 @@ parameter_bundles:
     drone_frame_id:
       remap_name: "drone_frame_id"
       update: false
+
+  hover_on_cable_maneuver_action_node:
+    hover_on_cable_target_z_velocity:
+      remap_name: "hover_on_cable_target_z_velocity"
+      update: true
+    hover_on_cable_target_yaw_rate:
+      remap_name: "hover_on_cable_target_yaw_rate"
+      update: true

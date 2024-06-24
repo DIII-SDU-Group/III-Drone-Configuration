@@ -211,10 +211,14 @@ private:
      * @brief Undeclares a parameter from the node.
      * 
      * @param parameter_full_name Name of the parameter
+     * @param skip_undeclare Skip undeclare if true
      * 
-     * @return void
+     * @return bool
      */
-    void undeclareParameter(const std::string & parameter_full_name);
+    bool undeclareParameter(
+        const std::string & parameter_full_name,
+        bool skip_undeclare = false
+    );
 
     /**
      * @brief Gets the full name of a parameter.

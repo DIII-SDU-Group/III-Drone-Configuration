@@ -7,6 +7,7 @@
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 
 #include <memory>
+#include <string>
 
 using namespace iii_drone::configuration;
 
@@ -26,10 +27,19 @@ Configurator<nodeT>::Configurator(
 
     node_ = node;
 
+    RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Getting namespace");
+
+    std::string namespace_ = node_->get_namespace();
+
+    RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Creating configurator node");
+
     configurator_node_ = rclcpp::Node::make_shared(
-        "configurator",
-        node_->get_namespace()
+        std::string(node_->get_name()) + "_configurator",
+        namespace_,
+        rclcpp::NodeOptions().use_intra_process_comms(true)
     );
+
+    RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Initializing clients");
 
     service_client_callback_group_ = configurator_node_->create_callback_group(
         rclcpp::CallbackGroupType::MutuallyExclusive
@@ -51,6 +61,8 @@ Configurator<nodeT>::Configurator(
         service_client_callback_group_
     );
 
+    RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Creating subscriber");
+
     parameter_events_subscriber_ = node_->template create_subscription<rcl_interfaces::msg::ParameterEvent>(
         "/parameter_events",
         10,
@@ -61,8 +73,12 @@ Configurator<nodeT>::Configurator(
         )
     );
 
+    RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Declaring parameter node_parameters_path_postfix");
+
     if (!node_->has_parameter("node_parameters_path_postfix"))
         node_->template declare_parameter<std::string>("node_parameters_path_postfix", "node_parameters/");
+
+    RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Getting CONFIG_BASE_DIR");
 
     std::string config_base_dir = std::string(getenv("CONFIG_BASE_DIR"));
 
@@ -108,7 +124,7 @@ Configurator<nodeT>::Configurator(
     node_ = node;
 
     configurator_node_ = rclcpp::Node::make_shared(
-        "configurator",
+        std::string(node_->get_name()) + "_configurator",
         node_->get_namespace()
     );
 
@@ -206,9 +222,11 @@ Configurator<nodeT>::~Configurator() {
 
         }
 
+        bool skip_undeclare = false;
+
         for (auto & parameter_name : parameter_names) {
 
-            undeclareParameter(parameter_name);
+            skip_undeclare = !undeclareParameter(parameter_name, skip_undeclare);
 
         }
     }
@@ -706,27 +724,40 @@ void Configurator<nodeT>::declareParameter(const std::string & parameter_full_na
 }
 
 template <typename nodeT>
-void Configurator<nodeT>::undeclareParameter(const std::string & parameter_full_name) {
+bool Configurator<nodeT>::undeclareParameter(
+    const std::string & parameter_full_name,
+    bool skip_undeclare
+) {
 
     RCLCPP_DEBUG(node_->get_logger(), "Configurator::UndeclareParameter(): Undeclaring parameter %s", parameter_full_name.c_str());
 
     // Send UndeclareParameter request:
     std::string message;
 
-    if (!sendUndeclareParameterRequest(
-            parameter_full_name,
-            message
-        )
-    ) {
+    bool undeclare_success = true;
 
-        std::string fatal_message = "Configurator::UndeclareParameter(): Failed to undeclare parameter " + parameter_full_name + " with error message " + message + ".";
+    if (!skip_undeclare) {
 
-        RCLCPP_FATAL(
-            node_->get_logger(),
-            fatal_message.c_str()
-        );
+        if (!sendUndeclareParameterRequest(
+                parameter_full_name,
+                message
+            )
+        ) {
 
-        throw std::runtime_error(fatal_message);
+            std::string warn_message = "Configurator::UndeclareParameter(): Failed to undeclare parameter " + parameter_full_name + " with error message " + message + ".";
+
+            RCLCPP_WARN(
+                node_->get_logger(),
+                warn_message.c_str()
+            );
+
+            undeclare_success = false;
+
+        }
+
+    } else {
+
+        undeclare_success = false;
 
     }
 
@@ -748,6 +779,8 @@ void Configurator<nodeT>::undeclareParameter(const std::string & parameter_full_
     }
 
     RCLCPP_DEBUG(node_->get_logger(), "Configurator::UndeclareParameter(): Parameter %s undeclared", parameter_full_name.c_str());
+
+    return undeclare_success;
 
 }
 
@@ -939,14 +972,16 @@ bool Configurator<nodeT>::sendUndeclareParameterRequest(
     // Wait for service:
     if (!undeclare_parameter_client_->wait_for_service(std::chrono::seconds(5))) {
 
-        std::string fatal_message = "Configurator::UndeclareParameter(): Service UndeclareParameter not available after 5 seconds.";
+        std::string warn_message = "Configurator::UndeclareParameter(): Service UndeclareParameter not available after 5 seconds.";
 
-        RCLCPP_FATAL(
+        RCLCPP_WARN(
             node_->get_logger(),
-            fatal_message.c_str()
+            warn_message.c_str()
         );
 
-        throw std::runtime_error(fatal_message);
+        message = warn_message;
+
+        return false;
 
     }
 

@@ -38,6 +38,12 @@ parameters:
   maneuver_execution_period_ms:
     name: "/control/maneuver_controller/maneuver_execution_period_ms"
     type: "int"
+  reference_callback_provider_publish_period_ms:
+    name: "/control/maneuver_controller/reference_callback_provider_publish_period_ms"
+    type: "int"
+  maneuver_completion_token_acquisition_timeout_s:
+    name: "/control/maneuver_controller/maneuver_completion_token_acquisition_timeout_s"
+    type: "float"
   use_nans_when_hovering:
     name: "/control/maneuver_controller/use_nans_when_hovering"
     type: "bool"
@@ -92,9 +98,24 @@ parameters:
   cable_landing_safety_margin_max_yaw_rate:
     name: "/control/maneuver_controller/cable_landing_safety_margin_max_yaw_rate"
     type: "float"
+  cable_landing_safety_margin_max_negative_vertical_distance:
+    name: "/control/maneuver_controller/cable_landing_safety_margin_max_negative_vertical_distance"
+    type: "float"
+  cable_landing_safety_margin_cone_slope:
+    name: "/control/maneuver_controller/cable_landing_safety_margin_cone_slope"
+    type: "float"
+  cable_landing_safety_margin_cone_tolerance:
+    name: "/control/maneuver_controller/cable_landing_safety_margin_cone_tolerance"
+    type: "float"
   cable_landing_reference_truncate_radius:
     name: "/control/maneuver_controller/cable_landing_reference_truncate_radius"
     type: "float"
+  cable_landing_reached_position_euclidean_distance_threshold:
+    name: "/control/maneuver_controller/cable_landing_reached_position_euclidean_distance_threshold"
+    type: "float"
+  use_gripper_status_condition:
+    name: "/control/maneuver_controller/use_gripper_status_condition"
+    type: "bool"
   cable_takeoff_min_target_cable_distance:
     name: "/control/maneuver_controller/cable_takeoff_min_target_cable_distance"
     type: "float"
@@ -149,6 +170,9 @@ parameter_bundles:
     combined_drone_awareness_pub_period_ms:
       remap_name: "combined_drone_awareness_pub_period_ms"
       update: false
+    use_gripper_status_condition:
+      remap_name: "use_gripper_status_condition"
+      update: false
     cable_gripper_frame_id:
       remap_name: "cable_gripper_frame_id"
       update: false
@@ -177,6 +201,12 @@ parameter_bundles:
       update: false
     maneuver_execution_period_ms:
       remap_name: "maneuver_execution_period_ms"
+      update: false
+    reference_callback_provider_publish_period_ms:
+      remap_name: "reference_callback_provider_publish_period_ms"
+      update: false
+    maneuver_completion_token_acquisition_timeout_s:
+      remap_name: "maneuver_completion_token_acquisition_timeout_s"
       update: false
     use_nans_when_hovering:
       remap_name: "use_nans_when_hovering"
@@ -245,9 +275,6 @@ parameter_bundles:
     cable_landing_max_initial_yaw_error:
       remap_name: "cable_landing_max_initial_yaw_error"
       update: true
-    reached_position_euclidean_distance_threshold:
-      remap_name: "reached_position_euclidean_distance_threshold"
-      update: true
     cable_gripper_frame_id:
       remap_name: "gripper_frame_id"
       update: false
@@ -278,9 +305,21 @@ parameter_bundles:
     cable_landing_safety_margin_max_yaw_rate:
       remap_name: "cable_landing_safety_margin_max_yaw_rate"
       update: true
+    cable_landing_safety_margin_max_negative_vertical_distance:
+      remap_name: "cable_landing_safety_margin_max_negative_vertical_distance"
+      update: true
+    cable_landing_safety_margin_cone_slope:
+      remap_name: "cable_landing_safety_margin_cone_slope"
+      update: true
     cable_landing_reference_truncate_radius:
       remap_name: "cable_landing_reference_truncate_radius"
       update: true
+    cable_landing_reached_position_euclidean_distance_threshold:
+      remap_name: "reached_position_euclidean_distance_threshold"
+      update: true
+    use_gripper_status_condition:
+      remap_name: "use_gripper_status_condition"
+      update: false
 
   cable_takeoff_maneuver_server:
     cable_takeoff_min_target_cable_distance:
