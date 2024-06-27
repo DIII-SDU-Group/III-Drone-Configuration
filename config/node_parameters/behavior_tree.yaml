@@ -29,12 +29,28 @@ parameters:
   hover_on_cable_target_yaw_rate:
     name: "/behavior/hover_on_cable_target_yaw_rate"
     type: "float"
+  
+  top_clearance_m:
+    name: "/behavior/top_clearance_m"
+    type: "float"
+  horizontal_clearance_m:
+    name: "/behavior/horizontal_clearance_m"
+    type: "float"
+  under_cable_clearance_m:
+    name: "/behavior/under_cable_clearance_m"
+    type: "float"
+  inside_powerline_xy_distance_threshold_m:
+    name: "/behavior/inside_powerline_xy_distance_threshold_m"
+    type: "float"
 
   drone_frame_id:
     name: "/tf/drone_frame_id"
     type: "string"
   gripper_frame_id:
     name: "/tf/cable_gripper_frame_id"
+    type: "string"
+  world_frame_id:
+    name: "/tf/world_frame_id"
     type: "string"
 
 parameter_bundles:
@@ -56,6 +72,9 @@ parameter_bundles:
     cable_takeoff_max_target_cable_distance:
       remap_name: "cable_takeoff_max_target_cable_distance"
       update: true
+    target_cable_distance:
+      remap_name: "target_cable_distance"
+      update: true
 
   select_target_line_condition_node:
     line_min_height_above_drone:
@@ -75,3 +94,21 @@ parameter_bundles:
     hover_on_cable_target_yaw_rate:
       remap_name: "hover_on_cable_target_yaw_rate"
       update: true
+
+  powerline_waypoint_provider_action_node:
+    top_clearance_m:
+      remap_name: "top_clearance_m"
+      update: true
+    horizontal_clearance_m:
+      remap_name: "horizontal_clearance_m"
+      update: true
+    inside_powerline_xy_distance_threshold_m:
+      remap_name: "inside_powerline_xy_distance_threshold_m"
+      update: true
+    under_cable_clearance_m:
+      remap_name: "under_cable_clearance_m"
+      update: true
+    world_frame_id:
+      remap_name: "world_frame_id"
+      update: false
+

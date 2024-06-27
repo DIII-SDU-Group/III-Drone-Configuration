@@ -131,6 +131,18 @@ parameters:
   generate_trajectories_timeout_ms:
     name: "/control/maneuver_controller/generate_trajectories_timeout_ms"
     type: "int"
+  fly_to_position_use_mpc:
+    name: "/control/maneuver_controller/fly_to_position_use_mpc"
+    type: "bool"
+  fly_to_object_use_mpc:
+    name: "/control/maneuver_controller/fly_to_object_use_mpc"
+    type: "bool"
+  cable_landing_use_mpc:
+    name: "/control/maneuver_controller/cable_landing_use_mpc"
+    type: "bool"
+  cable_takeoff_use_mpc:
+    name: "/control/maneuver_controller/cable_takeoff_use_mpc"
+    type: "bool"
   cable_gripper_frame_id:
     name: "/tf/cable_gripper_frame_id"
     type: "string"
@@ -247,6 +259,9 @@ parameter_bundles:
     minimum_target_altitude:
       remap_name: "minimum_target_altitude"
       update: true
+    fly_to_position_use_mpc:
+      remap_name: "use_mpc"
+      update: true
     world_frame_id:
       remap_name: "world_frame_id"
       update: false
@@ -257,6 +272,9 @@ parameter_bundles:
       update: true
     minimum_target_altitude:
       remap_name: "minimum_target_altitude"
+      update: true
+    fly_to_object_use_mpc:
+      remap_name: "use_mpc"
       update: true
     world_frame_id:
       remap_name: "world_frame_id"
@@ -311,6 +329,9 @@ parameter_bundles:
     cable_landing_safety_margin_cone_slope:
       remap_name: "cable_landing_safety_margin_cone_slope"
       update: true
+    cable_landing_safety_margin_cone_tolerance:
+      remap_name: "cable_landing_safety_margin_cone_tolerance"
+      update: true
     cable_landing_reference_truncate_radius:
       remap_name: "cable_landing_reference_truncate_radius"
       update: true
@@ -320,6 +341,9 @@ parameter_bundles:
     use_gripper_status_condition:
       remap_name: "use_gripper_status_condition"
       update: false
+    cable_landing_use_mpc:
+      remap_name: "use_mpc"
+      update: true
 
   cable_takeoff_maneuver_server:
     cable_takeoff_min_target_cable_distance:
@@ -337,6 +361,9 @@ parameter_bundles:
     world_frame_id:
       remap_name: "world_frame_id"
       update: false
+    cable_takeoff_use_mpc:
+      remap_name: "use_mpc"
+      update: true
     
     
 

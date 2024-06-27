@@ -8,6 +8,12 @@ parameters:
   dt:
     name: "/control/dt"
     type: "float"
+  interpolation_avg_velocity_m_s:
+    name: "/control/trajectory_interpolator/interpolation_avg_velocity_m_s"
+    type: "float"
+  reference_trajectory_length_N:
+    name: "/control/trajectory_interpolator/reference_trajectory_length_N"
+    type: "int"
   world_frame_id:
     name: "/tf/world_frame_id"
     type: "string"
@@ -393,3 +399,14 @@ parameter_bundles:
     cable_takeoff_MPC_wjz:
       remap_name: "wjz"
       update: true
+
+  trajectory_interpolator:
+    interpolation_avg_velocity_m_s:
+      remap_name: "interpolation_avg_velocity_m_s"
+      update: true
+    reference_trajectory_length_N:
+      remap_name: "reference_trajectory_length_N"
+      update: false
+    dt:
+      remap_name: "dt"
+      update: false

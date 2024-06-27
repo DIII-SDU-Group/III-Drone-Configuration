@@ -17,6 +17,9 @@ parameters:
   get_reference_timeout_ms:
     name: "/mission/get_reference_timeout_ms"
     type: "int"
+  manual_stick_input_threshold:
+    name: "/mission/manual_stick_input_threshold"
+    type: "float"
 
 parameter_bundles:
   maneuver_reference_client:
@@ -37,4 +40,9 @@ parameter_bundles:
     dt:
       remap_name: "maneuver_setpoint_dt"
       update: false
+
+  mode_executor:
+    manual_stick_input_threshold:
+      remap_name: "manual_stick_input_threshold"
+      update: true
 
