@@ -656,7 +656,7 @@ payload:
       min: 1
     charger_gripper_serial_port:
       type: string
-      value: /dev/ttyUSB0
+      value: /dev/charger
       constant: true
     charger_gripper_serial_baudrate:
       type: int
