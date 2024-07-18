@@ -95,6 +95,9 @@ perception:
       value: 10
       min: 1
       max: 20
+    use_inter_line_positions:
+      type: bool
+      value: true
     inter_pos_window_size:
       type: int
       value: 5

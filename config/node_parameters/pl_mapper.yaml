@@ -44,6 +44,9 @@ parameters:
   max_lines:
     name: "/perception/pl_mapper/max_lines"
     type: "int"
+  use_inter_line_positions:
+    name: "/perception/pl_mapper/use_inter_line_positions"
+    type: "bool"
   inter_pos_window_size:
     name: "/perception/pl_mapper/inter_pos_window_size"
     type: "int"
