@@ -60,10 +60,12 @@ public:
      * @brief Constructor
      *
      * @param node Reference to the handling node
+     * @param node_name Name of the node
      * @param after_parameter_change_callback Callback function called after successful parameter change, default is nullptr
      */
     Configurator(
         nodeT *node,
+        const std::string & node_name,
         std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback = nullptr
     );
 
@@ -71,11 +73,13 @@ public:
      * @brief Constructor
      *
      * @param node Reference to the handling node
+     * @param node_name Name of the node
      * @param qos Quality of service for the parameter event subscription
      * @param after_parameter_change_callback Callback function called after successful parameter change, default is nullptr
      */
     Configurator(
         nodeT *node,
+        const std::string & node_name,
         const rclcpp::QoS &qos,
         std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback = nullptr
     );
@@ -157,6 +161,11 @@ private:
     * @brief Reference to the handling node.
     */
     nodeT *node_;
+
+    /**
+     * @brief Name of the node.
+     */
+    std::string node_name_;
 
     /**
      * @brief Configurator node.
