@@ -3,7 +3,6 @@ perception:
     type: bool
     value: false
     constant: true
-
   hough_transformer:
     canny_low_threshold:
       type: int
@@ -104,6 +103,9 @@ perception:
       type: bool
       value: true
       constant: false
+    use_inter_line_positions:
+      type: bool
+      value: true
 sensor:
   iwr6843_pcl_pub:
     cli_port:
@@ -145,7 +147,7 @@ control:
       max: 1.0
     landed_altitude_threshold_on_start:
       type: float
-      value: 1.
+      value: 1.0
       min: 0.1
       max: 2.0
     on_cable_max_euc_distance:
@@ -304,7 +306,7 @@ control:
       max: 0.1
     cable_landing_safety_margin_cone_slope:
       type: float
-      value: 1.
+      value: 1.0
       min: 0.5
       max: 2.0
     cable_landing_safety_margin_cone_tolerance:
@@ -339,7 +341,6 @@ control:
     generate_trajectories_asynchronously_with_delay:
       type: bool
       value: false
-      # constant: true
     generate_trajectories_poll_period_ms:
       type: int
       value: 5
@@ -357,7 +358,7 @@ control:
       value: false
     fly_to_object_use_mpc:
       type: bool
-      value: false
+      value: true
     cable_landing_use_mpc:
       type: bool
       value: true
@@ -379,7 +380,7 @@ control:
       constant: true
     MPC_use_state_feedback:
       type: bool
-      value: false
+      value: true
     position_MPC_vx_max:
       type: float
       value: 1.5
@@ -392,7 +393,7 @@ control:
       max: 5.0
     position_MPC_vz_max:
       type: float
-      value: 3.
+      value: 3.0
       min: 0.1
       max: 5.0
     position_MPC_ax_max:
@@ -629,11 +630,11 @@ payload:
   charger_gripper:
     gripper_command_only:
       type: bool
-      value: false
+      value: true
       constant: true
     gripper_command_interface:
       type: string
-      value: serial
+      value: gpio
       options:
       - gpio
       - serial
@@ -656,7 +657,7 @@ payload:
       min: 1
     charger_gripper_serial_port:
       type: string
-      value: /dev/charger
+      value: /dev/ttyUSB0
       constant: true
     charger_gripper_serial_baudrate:
       type: int
@@ -728,54 +729,11 @@ payload:
       type: int
       value: 10
       min: 1
-# mission:
-#   continuous_mission_orchestrator:
-#     under_cable_target_distance:
-#       type: float
-#       value: 1.5
-#       min: 0.5
-#       max: 2.0
-#     use_charger_gripper_info:
-#       type: bool
-#       value: true
-#       constant: true
-#     cable_landing_max_retries:
-#       type: int
-#       value: 3
-#       min: 1
-#       max: 10
-#     battery_voltage_low_threshold:
-#       type: float
-#       value: 22.2
-#       min: 19.0
-#       max: 25.2
-#     battery_voltage_high_threshold:
-#       type: float
-#       value: 25.0
-#       min: 19.0
-#       max: 25.2
-#     charging_power_low_threshold:
-#       type: float
-#       value: 0.1
-#       min: 0.01
-#     action_timeout_ms:
-#       type: int
-#       value: 1000
-#       min: 1
-#     charging_minimum_duration_s:
-#       type: int
-#       value: 10
-#       min: 0
-#     charging_maximum_duration_s:
-#       type: int
-#       value: -1
-#       min: -1
 mission:
   mission_specification_file:
     type: string
-    value: "$MISSION_SPECIFICATION_DIR/mission_specification.yaml"
+    value: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
     constant: true
-  
   use_nans_when_hovering:
     type: bool
     value: true
@@ -796,15 +754,14 @@ mission:
     type: int
     value: 450
     min: 10
-    max: 500 # Minimum PX4 setpoint frequency is 2 Hz
+    max: 500
     constant: false
   manual_stick_input_threshold:
     type: float
     value: 0.1
+    constant: false
     min: 0.01
     max: 1.0
-    constant: false
-
 behavior:
   server_timeout_ms:
     type: int
@@ -855,25 +812,24 @@ behavior:
     max: 3.1415
   top_clearance_m:
     type: float
-    value: 2.
+    value: 2.0
     min: 0.5
     max: 5.0
   horizontal_clearance_m:
     type: float
-    value: 2.
+    value: 2.0
     min: 0.5
     max: 5.0
   under_cable_clearance_m:
     type: float
-    value: 2.
+    value: 2.0
     min: 0.5
     max: 3.0
   inside_powerline_xy_distance_threshold_m:
     type: float
-    value: 3.
+    value: 3.0
     min: 0.5
     max: 5.0
-
 tf:
   world_frame_id:
     type: string
@@ -933,11 +889,8 @@ tf:
     drone_to_mmwave:
       type: float_array
       value:
-      # - 0.035
-      # - -0.23
-      # - 0.1
-      - 0.
-      - 0.
+      - 0.0
+      - 0.0
       - 0.1
       - 3.1415
       - -1.57079632679
