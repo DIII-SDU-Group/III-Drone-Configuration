@@ -78,7 +78,15 @@ class ConfigurationServer(Node):
         self.get_logger().info("ConfigurationServer.__init__(): Initializing node " + node_name + " in namespace " + namespace + ".")
 
         self.declare_parameter("parameters_path_postfix", "parameters")
-        self.declare_parameter("default_parameter_file", "parameters.yaml")
+        self.declare_parameter("default_parameter_file", "parameters_real.yaml")
+        self.declare_parameter("sim_parameter_file", "parameters_sim.yaml")
+
+        if not SIMULATION:
+            self.params_file = str(self.get_parameter("default_parameter_file").value)
+        else:
+            self.params_file = str(self.get_parameter("sim_parameter_file").value)
+
+        self.get_logger().info("ConfigurationServer.__init__(): Using parameter file: " + self.params_file + ".")
 
         self.iii_config_dir: Optional[str] = None
 
@@ -165,7 +173,12 @@ class ConfigurationServer(Node):
         # Replace "~" with "/home/<user>" in the path
         self.params_dir = self.params_dir.replace("~", os.getenv("HOME"))
         
-        params_file = str(self.get_parameter("default_parameter_file").value)
+        if not SIMULATION:
+            self.params_file = str(self.get_parameter("default_parameter_file").value)
+        else:
+            self.params_file = str(self.get_parameter("sim_parameter_file").value)
+
+        params_file = self.params_file
         
         if not self.validate_parameter_file_name(params_file):
             msg = "ConfigurationServer.on_configure(): Default parameter file name " + params_file + " is not valid."
@@ -558,7 +571,7 @@ class ConfigurationServer(Node):
             raise RuntimeError("Deleted parameters not supported.")
         
         for parameter in parameter_event.changed_parameters + parameter_event.new_parameters:
-            if parameter.name == "default_parameter_file" or "use_sim_time" in parameter.name:
+            if parameter.name == self.params_file or "use_sim_time" in parameter.name:
                 continue
             try:
                 param_value = self._get_parameter_value_from_msg(
@@ -834,7 +847,10 @@ class ConfigurationServer(Node):
             # Format the date and time as a string in the format 'YYYYMMDD_HHMM'
             date_time_string = now.strftime('%Y%m%d_%H%M')
             
-            request.file = "parameters_" + date_time_string + ".yaml"
+            if not SIMULATION:
+                request.file = "parameters_real_" + date_time_string + ".yaml"
+            else:
+                request.file = "parameters_sim_" + date_time_string + ".yaml"
 
         self.get_logger().info("ConfigurationServer.save_parameters_callback(): Request to save parameters to file " + request.file + ".")
         
@@ -1168,7 +1184,7 @@ class ConfigurationServer(Node):
             ros_params_lines = ros_params_file.readlines()
             
         for i in range(len(ros_params_lines)):
-            if "default_parameter_file" in ros_params_lines[i]:
+            if not SIMULATION and "default_parameter_file" in ros_params_lines[i] or SIMULATION and "sim_parameter_file" in ros_params_lines[i]:
                 splitted_line = ros_params_lines[i].split(":")
                 splitted_line[1] = " " + f'"{file}"' + "\n"
                 ros_params_lines[i] = ":".join(splitted_line)
@@ -1180,7 +1196,7 @@ class ConfigurationServer(Node):
             
         self.set_parameters([
             Parameter(
-                name="default_parameter_file",
+                name="default_parameter_file" if not SIMULATION else "sim_parameter_file",
                 value=file
             )
         ])

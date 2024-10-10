@@ -2,7 +2,8 @@
   ros__parameters:
     parameters_path_postfix: "parameters/"
     node_parameters_path_postfix: "node_parameters/"
-    default_parameter_file: "parameters.yaml"
+    default_parameter_file: "parameters_real.yaml"
+    sim_parameter_file: "parameters_sim.yaml"
     use_sim_time: true
 
 sensor:

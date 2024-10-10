@@ -20,6 +20,9 @@ parameters:
   manual_stick_input_threshold:
     name: "/mission/manual_stick_input_threshold"
     type: "float"
+  mission_done_select_mode:
+    name: "/mission/mission_done_select_mode"
+    type: "string"
 
 parameter_bundles:
   maneuver_reference_client:
@@ -44,5 +47,8 @@ parameter_bundles:
   mode_executor:
     manual_stick_input_threshold:
       remap_name: "manual_stick_input_threshold"
+      update: true
+    mission_done_select_mode:
+      remap_name: "mission_done_select_mode"
       update: true
 
