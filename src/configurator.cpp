@@ -20,8 +20,9 @@ using namespace iii_drone::configuration;
 template <typename nodeT>
 Configurator<nodeT>::Configurator(
     nodeT *node,
+    const std::string & node_name,
     std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback
-) : after_parameter_change_callback_(after_parameter_change_callback) {
+) : node_name_(node_name), after_parameter_change_callback_(after_parameter_change_callback) {
 
     RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Initializing configurator");
 
@@ -115,9 +116,10 @@ Configurator<nodeT>::Configurator(
 template <typename nodeT>
 Configurator<nodeT>::Configurator(
     nodeT *node,
+    const std::string & node_name,
     const rclcpp::QoS &qos,
     std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback
-) : after_parameter_change_callback_(after_parameter_change_callback) {
+) : node_name_(node_name), after_parameter_change_callback_(after_parameter_change_callback) {
 
     RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Initializing configurator");
 
@@ -903,7 +905,7 @@ bool Configurator<nodeT>::sendDeclareParameterRequest(
 
     request->name = parameter_full_name;
     request->type = type;
-    request->node_name = node_->get_name();
+    request->node_name = node_name_;
 
     // Wait for service:
     if (!declare_parameter_client_->wait_for_service(std::chrono::seconds(5))) {

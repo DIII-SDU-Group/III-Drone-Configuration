@@ -700,15 +700,19 @@ class ConfigurationServer(Node):
             response.succeeded = False
             response.message = "Type " + str(request.type) + " does not match type " + str(param_dict["type"]) + " in loaded parameters for parameter " + request.name + "."
 
+            self.get_logger().error("ConfigurationServer.declare_parameter_callback(): " + response.message)
+
             return response
 
         if request.node_name == "":
             response.succeeded = False
             response.message = "Node name is empty."
 
+            self.get_logger().error("ConfigurationServer.declare_parameter_callback(): " + response.message)
+
             return response
 
-        self.get_logger().info("ConfigurationServer.declare_parameter_callback(): Declaring parameter " + request.name + " with value " + str(param_dict["value"]) + " of type " + str(param_dict["type"]) + ".")
+        self.get_logger().info("ConfigurationServer.declare_parameter_callback(): Declaring parameter " + request.name + " for node " + request.node_name + " with value " + str(param_dict["value"]) + " of type " + str(param_dict["type"]) + ".")
         
         if already_declared:
             self.declared_params_nodes[request.name].append(request.node_name)
