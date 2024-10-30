@@ -361,6 +361,9 @@ parameter_bundles:
     world_frame_id:
       remap_name: "world_frame_id"
       update: false
+    cable_gripper_frame_id: 
+      remap_name: "gripper_frame_id" 
+      update: false 
     cable_takeoff_use_mpc:
       remap_name: "use_mpc"
       update: true
