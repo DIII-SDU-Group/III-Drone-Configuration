@@ -106,9 +106,6 @@ perception:
     use_inter_line_positions:
       type: bool
       value: true
-    use_inter_line_positions:
-      type: bool
-      value: true
 sensor:
   iwr6843_pcl_pub:
     cli_port:
@@ -150,7 +147,6 @@ control:
       max: 1.0
     landed_altitude_threshold_on_start:
       type: float
-      value: 1.0
       value: 1.0
       min: 0.1
       max: 2.0
@@ -311,7 +307,6 @@ control:
     cable_landing_safety_margin_cone_slope:
       type: float
       value: 1.0
-      value: 1.0
       min: 0.5
       max: 2.0
     cable_landing_safety_margin_cone_tolerance:
@@ -364,7 +359,6 @@ control:
     fly_to_object_use_mpc:
       type: bool
       value: true
-      value: true
     cable_landing_use_mpc:
       type: bool
       value: true
@@ -387,7 +381,6 @@ control:
     MPC_use_state_feedback:
       type: bool
       value: true
-      value: true
     position_MPC_vx_max:
       type: float
       value: 1.5
@@ -400,7 +393,6 @@ control:
       max: 5.0
     position_MPC_vz_max:
       type: float
-      value: 3.0
       value: 3.0
       min: 0.1
       max: 5.0
@@ -639,11 +631,9 @@ payload:
     gripper_command_only:
       type: bool
       value: true
-      value: true
       constant: true
     gripper_command_interface:
       type: string
-      value: gpio
       value: gpio
       options:
       - gpio
@@ -667,7 +657,6 @@ payload:
       min: 1
     charger_gripper_serial_port:
       type: string
-      value: /dev/ttyUSB0
       value: /dev/ttyUSB0
       constant: true
     charger_gripper_serial_baudrate:
@@ -744,7 +733,6 @@ mission:
   mission_specification_file:
     type: string
     value: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
-    value: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
     constant: true
   use_nans_when_hovering:
     type: bool
@@ -767,12 +755,10 @@ mission:
     value: 450
     min: 10
     max: 500
-    max: 500
     constant: false
   manual_stick_input_threshold:
     type: float
     value: 0.1
-    constant: false
     constant: false
     min: 0.01
     max: 1.0
@@ -834,24 +820,20 @@ behavior:
   top_clearance_m:
     type: float
     value: 2.0
-    value: 2.0
     min: 0.5
     max: 5.0
   horizontal_clearance_m:
     type: float
-    value: 2.0
     value: 2.0
     min: 0.5
     max: 5.0
   under_cable_clearance_m:
     type: float
     value: 2.0
-    value: 2.0
     min: 0.5
     max: 3.0
   inside_powerline_xy_distance_threshold_m:
     type: float
-    value: 3.0
     value: 3.0
     min: 0.5
     max: 5.0
