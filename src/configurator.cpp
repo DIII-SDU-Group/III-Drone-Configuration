@@ -32,12 +32,15 @@ Configurator<nodeT>::Configurator(
 
     std::string namespace_ = node_->get_namespace();
 
+    std::string _node_name = node_->get_name();
+
+    std::string config_node_name = _node_name + "_configurator";
+
     RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Creating configurator node");
 
-    configurator_node_ = rclcpp::Node::make_shared(
-        std::string(node_->get_name()) + "_configurator",
-        namespace_,
-        rclcpp::NodeOptions().use_intra_process_comms(true)
+    configurator_node_ = std::make_shared<rclcpp::Node>(
+        config_node_name,
+        namespace_
     );
 
     RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Initializing clients");
@@ -232,6 +235,14 @@ Configurator<nodeT>::~Configurator() {
 
         }
     }
+
+    get_parameters_client_.reset();
+
+    undeclare_parameter_client_.reset();
+
+    declare_parameter_client_.reset();
+
+    service_client_callback_group_.reset();
 
     configurator_node_.reset();
 
