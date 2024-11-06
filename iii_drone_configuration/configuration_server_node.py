@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Optional
 import time
 import threading
+import gc
 
 from iii_drone_interfaces.srv import DeclareParameter, UndeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
 
@@ -220,6 +221,8 @@ class ConfigurationServer(Node):
             return ret
         
         self._cleanup()
+
+        gc.collect()
         
         self.get_logger().info("ConfigurationServer.on_cleanup(): ConfigurationServer cleaned up successfully.")
         
@@ -350,6 +353,8 @@ class ConfigurationServer(Node):
             return ret
         
         self._deactivate()
+
+        gc.collect()
         
         self.get_logger().info("ConfigurationServer.on_deactivate(): ConfigurationServer deactivated successfully.")
         
@@ -360,42 +365,52 @@ class ConfigurationServer(Node):
 
         if self.declare_parameter_service is not None:
             self.declare_parameter_service.destroy()
+            del self.declare_parameter_service
             self.declare_parameter_service = None
 
         if self.get_parameter_yaml_service is not None:
             self.get_parameter_yaml_service.destroy()
+            del self.get_parameter_yaml_service
             self.get_parameter_yaml_service = None
 
         if self.get_declared_parameters_service is not None:
             self.get_declared_parameters_service.destroy()
+            del self.get_declared_parameters_service
             self.get_declared_parameters_service = None
 
         if self.save_parameters_service is not None:
             self.save_parameters_service.destroy()
+            del self.save_parameters_service
             self.save_parameters_service = None
 
         if self.get_parameter_files_service is not None:
             self.get_parameter_files_service.destroy()
+            del self.get_parameter_files_service
             self.get_parameter_files_service = None
 
         if self.load_parameters_service is not None:
             self.load_parameters_service.destroy()
+            del self.load_parameters_service
             self.load_parameters_service = None
 
         if self.set_parameter_from_gc_service is not None:
             self.set_parameter_from_gc_service.destroy()
+            del self.set_parameter_from_gc_service
             self.set_parameter_from_gc_service = None
 
         if self.get_current_parameter_file_service is not None:
             self.get_current_parameter_file_service.destroy()
+            del self.get_current_parameter_file_service
             self.get_current_parameter_file_service = None
 
         if self.set_current_parameter_file_as_default_service is not None:
             self.set_current_parameter_file_as_default_service.destroy()
+            del self.set_current_parameter_file_as_default_service
             self.set_current_parameter_file_as_default_service = None
 
         if self.set_parameter_event_callback_handler is not None:
             self.remove_on_set_parameters_callback(self.set_parameter_event_callback_handler)
+            del self.set_parameter_event_callback_handler
             self.set_parameter_event_callback_handler = None
 
         self.is_active = False
@@ -493,6 +508,8 @@ class ConfigurationServer(Node):
             SetParametersResult: Result of the callback.
         """
 
+        self.get_logger().debug("ConfigurationServer.set_parameter_event_callback()")
+
         result = SetParametersResult()
 
         for parameter in parameters:
@@ -558,6 +575,8 @@ class ConfigurationServer(Node):
             RuntimeError: If parameters are deleted, since this is not supported.
             RuntimeError: If the param can not be set for whatever reason, since this should not happen as it is verified in the pre-set parameter callback.
         """
+
+        self.get_logger().debug("ConfigurationServer.parameter_events_callback()")
 
         if not self.is_active:
             return
@@ -636,6 +655,8 @@ class ConfigurationServer(Node):
             TypeError: If the parameter type is not recognized.
         """
 
+        self.get_logger().debug("ConfigurationServer._get_parameter_value_from_msg()")
+
         param_dict = self.parameter_handler.get_param(parameter_name)
 
         if param_dict["type"] == "string":
@@ -681,6 +702,8 @@ class ConfigurationServer(Node):
         Returns:
             DeclareParameter.Response: Service response.
         """
+
+        self.get_logger().debug("ConfigurationServer.declare_parameter_callback()")
 
         try:
             param_dict = self.parameter_handler.get_param(request.name)
@@ -754,6 +777,8 @@ class ConfigurationServer(Node):
             UndeclareParameter.Response: Service response.
         """
 
+        self.get_logger().debug("ConfigurationServer.undeclare_parameter_callback()")
+
         if self.declared_params is None or request.name not in self.declared_params:
             response.succeeded = False
             response.message = "Parameter not declared."
@@ -804,6 +829,8 @@ class ConfigurationServer(Node):
             GetParameterYaml.Response: Service response.
         """
 
+        self.get_logger().debug("ConfigurationServer.get_parameter_yaml_callback()")
+
         response.yaml = self.parameter_handler.get_parameters_yaml_string()
 
         return response
@@ -824,6 +851,8 @@ class ConfigurationServer(Node):
             GetDeclaredParameters.Response: Service response.
         """
 
+        self.get_logger().debug("ConfigurationServer.get_declared_parameters_callback()")
+
         response.declared_parameters_yaml = yaml.dump(self.declared_params)
 
         return response
@@ -843,6 +872,8 @@ class ConfigurationServer(Node):
         Returns:
             SaveParameters.Response: Service response.
         """
+
+        self.get_logger().debug("ConfigurationServer.save_parameters_callback()")
         
         if request.file == "":
             # Get the current date and time
@@ -910,6 +941,8 @@ class ConfigurationServer(Node):
         Returns:
             GetParameterFiles.Response: Service response.
         """
+
+        self.get_logger().debug("ConfigurationServer.get_parameter_files_callback()")
 
         parameter_files = os.listdir(self.params_dir)
 
@@ -1022,6 +1055,8 @@ class ConfigurationServer(Node):
         request: SetParameterFromGC.Request,
         response: SetParameterFromGC.Response
     ) -> SetParameterFromGC.Response:
+        self.get_logger().debug("ConfigurationServer.set_parameter_from_gc_callback()")
+        
         parameter_name = request.parameter_name
 
         try:
@@ -1118,6 +1153,7 @@ class ConfigurationServer(Node):
         request: GetCurrentParameterFile.Request,
         response: GetCurrentParameterFile.Response
     ) -> GetCurrentParameterFile.Response:
+        self.get_logger().debug("ConfigurationServer.get_current_parameter_file_callback()")
         response.default_parameter_file = self.get_parameter("default_parameter_file").value
         response.current_parameter_file = os.path.basename(self.params_file)
         
@@ -1128,6 +1164,7 @@ class ConfigurationServer(Node):
         request: SetCurrentParameterFileAsDefault.Request,
         response: SetCurrentParameterFileAsDefault.Response
     ) -> SetCurrentParameterFileAsDefault.Response:
+        self.get_logger().debug("ConfigurationServer.set_current_parameter_file_as_default_callback()")
         try:
             self.set_default_parameter_file(os.path.basename(self.params_file))
             
@@ -1153,6 +1190,8 @@ class ConfigurationServer(Node):
         Returns:
             bool: True if the file name is valid, False otherwise.
         """
+
+        self.get_logger().debug("ConfigurationServer.validate_parameter_file_name()")
 
         if file_name[-5:] != ".yaml":
             return False
@@ -1181,6 +1220,8 @@ class ConfigurationServer(Node):
         Parameters:
             file (str): File name.
         """
+
+        self.get_logger().debug("ConfigurationServer.set_default_parameter_file()")
         
         ros_params_lines = []
 
