@@ -266,12 +266,12 @@ class ConfigurationServer(Node):
             self.get_logger().error("ConfigurationServer.on_activate(): Base class activation failed.")
             return ret
 
-        self.parameter_events_subscription = self.create_subscription(
-            rcl_msg.ParameterEvent,
-            "/parameter_events",
-            self.parameter_events_callback,
-            10
-        )
+        # self.parameter_events_subscription = self.create_subscription(
+        #     rcl_msg.ParameterEvent,
+        #     "/parameter_events",
+        #     self.parameter_events_callback,
+        #     10
+        # )
         
         # Initialize services:
         self.declare_parameters_service = self.create_service(
@@ -335,7 +335,7 @@ class ConfigurationServer(Node):
         )
         
         # Service callback that gets called before a parameter is set:
-        self.add_on_set_parameters_callback(self.set_parameter_event_callback)
+        # self.add_on_set_parameters_callback(self.set_parameter_event_callback)
 
         self.parameter_callback_registered = True
 
@@ -368,10 +368,10 @@ class ConfigurationServer(Node):
     def _deactivate(self):
         self.get_logger().debug("ConfigurationServer._deactivate(): Deactivating ConfigurationServer object.")
 
-        if self.parameter_events_subscription is not None:
-            self.destroy_subscription(self.parameter_events_subscription)
-            del self.parameter_events_subscription
-            self.parameter_events_subscription = None
+        # if self.parameter_events_subscription is not None:
+        #     self.destroy_subscription(self.parameter_events_subscription)
+        #     del self.parameter_events_subscription
+        #     self.parameter_events_subscription = None
 
         if self.declare_parameters_service is not None:
             self.declare_parameters_service.destroy()
@@ -423,9 +423,9 @@ class ConfigurationServer(Node):
             del self.set_current_parameter_file_as_default_service
             self.set_current_parameter_file_as_default_service = None
 
-        if self.parameter_callback_registered:
-            self.remove_on_set_parameters_callback(self.set_parameter_event_callback)
-            self.parameter_callback_registered = False
+        # if self.parameter_callback_registered:
+        #     self.remove_on_set_parameters_callback(self.set_parameter_event_callback)
+        #     self.parameter_callback_registered = False
 
         self.is_active = False
         
@@ -1124,7 +1124,7 @@ class ConfigurationServer(Node):
         request: SetParameterFromGC.Request,
         response: SetParameterFromGC.Response
     ) -> SetParameterFromGC.Response:
-        self.get_logger().debug("ConfigurationServer.set_parameter_from_gc_callback()")
+        self.get_logger().info("ConfigurationServer.set_parameter_from_gc_callback()")
         
         parameter_name = request.parameter_name
 
@@ -1206,6 +1206,11 @@ class ConfigurationServer(Node):
                 True,
                 force_constant=True
             )
+
+            self.declared_params[parameter_name] = parameter_value
+            self.parameters_initialized[parameter_name] = True
+
+            self.get_logger().info("ConfigurationServer.set_parameter_from_gc_callback(): " + response.message)
             
             response.success = True
             
