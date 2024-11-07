@@ -5,23 +5,23 @@
 ###############################################################################
 
 import rclpy
+import rclpy.parameter
 from rclpy.service import Service
 from rclpy.subscription import Subscription
 from rclpy.lifecycle import Node, State, TransitionCallbackReturn
-from rcl_interfaces.msg import ParameterEvent, SetParametersResult
-from rclpy.parameter import Parameter, ParameterValue
 from rclpy.exceptions import ParameterNotDeclaredException
+import rcl_interfaces.msg as rcl_msg
 
 import os
 import sys
 import yaml
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Callable, List
 import time
 import threading
 import gc
 
-from iii_drone_interfaces.srv import DeclareParameter, UndeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
+from iii_drone_interfaces.srv import DeclareParameters, UndeclareParameters, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
 
 from iii_drone_configuration.parameter_handler import ParameterHandler
 
@@ -107,9 +107,9 @@ class ConfigurationServer(Node):
 
         self.param_success: Optional[bool] = None
 
-        self.declare_parameter_service: Optional[Service] = None
+        self.declare_parameters_service: Optional[Service] = None
         
-        self.undeclare_parameter_service: Optional[Service] = None
+        self.undeclare_parameters_service: Optional[Service] = None
         
         self.get_parameter_yaml_service: Optional[Service] = None
         
@@ -127,13 +127,13 @@ class ConfigurationServer(Node):
         
         self.set_current_parameter_file_as_default_service: Optional[Service] = None
         
-        self.set_parameter_event_callback_handler: Optional[Callable[[List[Parameter]], SetParametersResult]] = None
+        self.set_parameter_event_callback_handler: Optional[Callable[[List[rclpy.parameter.Parameter]], rcl_msg.SetParametersResult]] = None
 
         #/parameter_events topic subscriber:
         self.is_active = False
         
         self.parameter_events_subscription = self.create_subscription(
-            ParameterEvent,
+            rcl_msg.ParameterEvent,
             "/parameter_events",
             self.parameter_events_callback,
             10
@@ -273,16 +273,16 @@ class ConfigurationServer(Node):
             return ret
         
         # Initialize services:
-        self.declare_parameter_service = self.create_service(
-            DeclareParameter,
-            "declare_parameter",
-            self.declare_parameter_callback
+        self.declare_parameters_service = self.create_service(
+            DeclareParameters,
+            "declare_parameters",
+            self.declare_parameters_callback
         )
         
-        self.undeclare_parameter_service = self.create_service(
-            UndeclareParameter,
-            "undeclare_parameter",
-            self.undeclare_parameter_callback
+        self.undeclare_parameters_service = self.create_service(
+            UndeclareParameters,
+            "undeclare_parameters",
+            self.undeclare_parameters_callback
         )
         
         self.get_parameter_yaml_service = self.create_service(
@@ -365,10 +365,15 @@ class ConfigurationServer(Node):
     def _deactivate(self):
         self.get_logger().debug("ConfigurationServer._deactivate(): Deactivating ConfigurationServer object.")
 
-        if self.declare_parameter_service is not None:
-            self.declare_parameter_service.destroy()
-            del self.declare_parameter_service
-            self.declare_parameter_service = None
+        if self.declare_parameters_service is not None:
+            self.declare_parameters_service.destroy()
+            del self.declare_parameters_service
+            self.declare_parameters_service = None
+
+        if self.undeclare_parameters_service is not None:
+            self.undeclare_parameters_service.destroy()
+            del self.undeclare_parameters_service
+            self.undeclare_parameters_service = None
 
         if self.get_parameter_yaml_service is not None:
             self.get_parameter_yaml_service.destroy()
@@ -496,8 +501,8 @@ class ConfigurationServer(Node):
         
     def set_parameter_event_callback(
         self,
-        parameters: "list[Parameter]"
-    ) -> SetParametersResult:
+        parameters: "list[rcl_msg.Parameter]"
+    ) -> rcl_msg.SetParametersResult:
         """
         Callback for parameter events, gets called before a parameter is set. 
         Rejects if the parameter is constant, if the type or value do not match the loaded parameters,
@@ -512,7 +517,7 @@ class ConfigurationServer(Node):
 
         self.get_logger().debug("ConfigurationServer.set_parameter_event_callback()")
 
-        result = SetParametersResult()
+        result = rcl_msg.SetParametersResult()
 
         for parameter in parameters:
             if parameter.name in self.declared_params:
@@ -563,7 +568,7 @@ class ConfigurationServer(Node):
     
     def parameter_events_callback(
         self,
-        parameter_event: ParameterEvent
+        parameter_event: rcl_msg.ParameterEvent
     ) -> None:
         """
         Callback for parameter events, gets called after a parameter is set.
@@ -639,7 +644,7 @@ class ConfigurationServer(Node):
     def _get_parameter_value_from_msg(
         self,
         parameter_name: str,
-        parameter_value: ParameterValue
+        parameter_value: rcl_msg.ParameterValue
     ) -> str|int|float|bool|list[str|int|float|bool]:
         """
         Gets the parameter value from the ParameterValue object 
@@ -688,27 +693,42 @@ class ConfigurationServer(Node):
         else:
             raise TypeError("Type " + str(param_dict["type"]) + " not recognized.")
 
-    def declare_parameter_callback(
+    def declare_parameters_callback(
         self,
-        request: DeclareParameter.Request,
-        response: DeclareParameter.Response
-    ) -> DeclareParameter.Response:
+        request: DeclareParameters.Request,
+        response: DeclareParameters.Response
+    ) -> DeclareParameters.Response:
         """
-        Callback for declare_parameter service. Checks that the the parameter has been loaded,
-        and that the type matches the loaded type.
+        Callback for declare_parameters service. Checks that the parameters has been loaded,
+        and that the types matches the loaded types.
 
         Parameters:
-            request (DeclareParameter.Request): Service request.
-            response (DeclareParameter.Response): Service response.
+            request (DeclareParameters.Request): Service request.
+            response (DeclareParameters.Response): Service response.
 
         Returns:
-            DeclareParameter.Response: Service response.
+            DeclareParameters.Response: Service response.
         """
 
-        self.get_logger().debug("ConfigurationServer.declare_parameter_callback()")
+        self.get_logger().debug("ConfigurationServer.declare_parameters_callback()")
+
+        if len(request.names) == 0:
+            response.succeeded = False
+            response.message = "No parameters to declare."
+
+            return response
+        
+        if len(request.names) != len(request.types):
+            response.succeeded = False
+            response.message = "Number of names and types do not match."
+
+            return response
+        
+        param_dicts = {}
 
         try:
-            param_dict = self.parameter_handler.get_param(request.name)
+            for name in request.names:
+                param_dicts[name] = self.parameter_handler.get_param(name)
         
         except KeyError as e:
             response.succeeded = False
@@ -716,102 +736,142 @@ class ConfigurationServer(Node):
 
             return response
 
-        already_declared = False
-
-        if request.name in self.declared_params:
-            already_declared = True
-
-        if request.type != param_dict["type"]:
-            response.succeeded = False
-            response.message = "Type " + str(request.type) + " does not match type " + str(param_dict["type"]) + " in loaded parameters for parameter " + request.name + "."
-
-            self.get_logger().error("ConfigurationServer.declare_parameter_callback(): " + response.message)
-
-            return response
-
         if request.node_name == "":
             response.succeeded = False
             response.message = "Node name is empty."
 
-            self.get_logger().error("ConfigurationServer.declare_parameter_callback(): " + response.message)
+            self.get_logger().error("ConfigurationServer.declare_parameters_callback(): " + response.message)
 
             return response
 
-        self.get_logger().info("ConfigurationServer.declare_parameter_callback(): Declaring parameter " + request.name + " for node " + request.node_name + " with value " + str(param_dict["value"]) + " of type " + str(param_dict["type"]) + ".")
-        
-        if already_declared:
-            self.declared_params_nodes[request.name].append(request.node_name)
-            response.succeeded = True
-            response.message = "Parameter already declared."
+        failed_parameters = []
+        already_declared_parameters = []
 
+        for i in range(len(request.names)):
+            name = request.names[i]
+            param_type = request.types[i]
+            
+            param_dict = param_dicts[name]
+
+            if name in self.declared_params:
+                already_declared_parameters.append(name)
+                continue
+
+            if param_type != param_dict["type"]:
+                failed_parameters.append(name)
+                continue
+
+        if len(failed_parameters) > 0:
+            response.succeeded = False
+            response.message = "Failed to declare parameters. Types do not match loaded parameters. Conflicting parameters: " + str(failed_parameters) + "."
+            
             return response
-        
-        value = param_dict["value"]
 
-        self.declare_parameter(
-            request.name,
-            value
-        )
+        values: List[rcl_msg.ParameterValue] = []
 
-        self.declared_params[request.name] = value
-        self.declared_params_nodes[request.name] = [request.node_name]
-        self.parameters_initialized[request.name] = False
+        def get_parameter_value_msg(
+            _type: str,
+            value: str|int|float|bool|list[str|int|float|bool]
+        ) -> rcl_msg.ParameterValue:
+            parameter_value = rcl_msg.ParameterValue()
+            parameter_value.type = self._string_to_parameter_type(_type)
+            parameter_value = self._set_parameter_value(
+                parameter_value,
+                value
+            )
+            
+            return parameter_value
+
+        for name in request.names:
+            param_dict = param_dicts[name]
+            value = param_dict["value"]
+            
+            if name in already_declared_parameters:
+                self.declared_params_nodes[name].append(request.node_name)
+                
+                parameter_value = get_parameter_value_msg(
+                    param_dict["type"], 
+                    value
+                )
+                values.append(parameter_value)
+                
+                continue
+            
+            self.declare_parameter(
+                name,
+                value
+            )
+            
+            parameter_value = get_parameter_value_msg(
+                param_dict["type"], 
+                value
+            )
+            values.append(parameter_value)
+
+            self.declared_params[name] = value
+            self.declared_params_nodes[name] = [request.node_name]
+            self.parameters_initialized[name] = False
 
         response.succeeded = True
         response.message = "Parameter declared successfully."
+        response.values = values
+        
+        if len(already_declared_parameters) > 0:
+            response.message += " Already declared parameters: " + str(already_declared_parameters) + "."
 
         return response
 
-    def undeclare_parameter_callback(
+    def undeclare_parameters_callback(
         self,
-        request: UndeclareParameter.Request,
-        response: UndeclareParameter.Response
-    ) -> UndeclareParameter.Response:
+        request: UndeclareParameters.Request,
+        response: UndeclareParameters.Response
+    ) -> UndeclareParameters.Response:
         """
-        Callback for undeclare_parameter service. Removes the node from list of nodes that declared the parameter.
+        Callback for undeclare_parameters service. Removes the node from list of nodes that declared the parameter for all parameters.
         If the node name is the last one, undeclares the parameter.
 
         Parameters:
-            request (UndeclareParameter.Request): Service request.
-            response (UndeclareParameter.Response): Service response.
+            request (UndeclareParameters.Request): Service request.
+            response (UndeclareParameters.Response): Service response.
 
         Returns:
-            UndeclareParameter.Response: Service response.
+            UndeclareParameters.Response: Service response.
         """
 
-        self.get_logger().debug("ConfigurationServer.undeclare_parameter_callback()")
+        self.get_logger().debug("ConfigurationServer.undeclare_parameters_callback()")
 
-        if self.declared_params is None or request.name not in self.declared_params:
+        if self.declared_params is None:
             response.succeeded = False
-            response.message = "Parameter not declared."
+            response.message = "Parameters not declared."
 
             return response
 
-        if request.node_name not in self.declared_params_nodes[request.name]:
+        has_declared_parameter = False
+
+        self.get_logger().info("ConfigurationServer.undeclare_parameters_callback(): Undeclaring parameters for node " + request.node_name + ".")
+
+        declared_params_nodes_copy = self.declared_params_nodes.copy()
+
+        for name, nodes in declared_params_nodes_copy.items():
+            if request.node_name in nodes:
+                has_declared_parameter = True
+                
+                self.declared_params_nodes[name].remove(request.node_name)
+                
+                if self.declared_params_nodes[name] == []:
+                    self.undeclare_parameter(name)
+
+                    self.declared_params.pop(name)
+                    self.declared_params_nodes.pop(name)
+
+        if not has_declared_parameter:
             response.succeeded = False
-            response.message = "Node has not declared parameter."
+            response.message = "Node has not declared any parameters."
 
             return response
-
-        self.get_logger().info("ConfigurationServer.undeclare_parameter_callback(): Undeclaring parameter " + request.name + ".")
-
-        self.declared_params_nodes[request.name].remove(request.node_name)
-        
-        if self.declared_params_nodes[request.name] != []:
-            response.succeeded = True
-            response.message = "Node undeclared from parameter."
-
-            return response
-
-        self.undeclare_parameter(request.name)
-
-        # del self.declared_params[request.name]
-        # del self.declared_params_nodes[request.name]
-        self.declared_params.pop(request.name)
-        self.declared_params_nodes.pop(request.name)
 
         response.succeeded = True
-        response.message = "Parameter fully undeclared."
+        response.message = "Parameters fully undeclared for node."
 
         return response
     
@@ -1011,7 +1071,7 @@ class ConfigurationServer(Node):
                 
             if changed_parameter_names != []:
                 changed_ros_parameters = [
-                    Parameter(
+                    rclpy.parameter.Parameter(
                         name=param_name,
                         value=self.parameter_handler.get_param_value(param_name)
                     ) for param_name in changed_parameter_names
@@ -1118,8 +1178,8 @@ class ConfigurationServer(Node):
             if "constant" in parameter_dict and parameter_dict["constant"]:
                 response.message = "Parameter " + parameter_name + " successfully set to " + str(parameter_value) + ", but change will only take place after restarting system."
             else:
-                set_result: "list[SetParametersResult]" = self.set_parameters([
-                    Parameter(
+                set_result: "list[rcl_msg.SetParametersResult]" = self.set_parameters([
+                    rclpy.parameter.Parameter(
                         name=parameter_name,
                         value=parameter_value
                     )
@@ -1242,11 +1302,104 @@ class ConfigurationServer(Node):
             ros_params_file.writelines(ros_params_lines)
             
         self.set_parameters([
-            Parameter(
+            rclpy.parameter.Parameter(
                 name="default_parameter_file" if not SIMULATION else "sim_parameter_file",
                 value=file
             )
         ])
+
+    def _string_to_parameter_type(
+        self,
+        param_type: str
+    ) -> rcl_msg.ParameterType:
+        """
+        Converts a string to a ParameterType.
+        
+        Parameters:
+            param_type (str): Parameter type as a string.
+            
+        Returns:
+            ParameterType: Parameter type.
+            
+        Raises:
+            ValueError: If the parameter type is not recognized.
+            
+        """
+        
+        if param_type == "string":
+            return rcl_msg.ParameterType.PARAMETER_STRING
+        
+        elif param_type == "int":
+            return rcl_msg.ParameterType.PARAMETER_INTEGER
+        
+        elif param_type == "float":
+            return rcl_msg.ParameterType.PARAMETER_DOUBLE
+        
+        elif param_type == "bool":
+            return rcl_msg.ParameterType.PARAMETER_BOOL
+        
+        elif param_type == "string_array":
+            return rcl_msg.ParameterType.PARAMETER_STRING_ARRAY
+        
+        elif param_type == "int_array":
+            return rcl_msg.ParameterType.PARAMETER_INTEGER_ARRAY
+        
+        elif param_type == "float_array":
+            return rcl_msg.ParameterType.PARAMETER_DOUBLE_ARRAY
+        
+        elif param_type == "bool_array":
+            return rcl_msg.ParameterType.PARAMETER_BOOL_ARRAY
+        
+        else:
+            raise ValueError("Type " + param_type + " not recognized.")
+
+    def _set_parameter_value(
+        self,
+        parameter_value: rcl_msg.ParameterValue,
+        value: str|int|float|bool|list[str|int|float|bool]
+    ) -> rcl_msg.ParameterValue:
+        """
+        Sets the parameter value based on the type.
+
+        Parameters:
+            parameter_value (ParameterValue): Parameter value.
+            value (str|int|float|bool|list[str|int|float|bool]): Value to set.
+
+        Returns:
+            ParameterValue: Parameter value.
+            
+        Raises:
+            ValueError: If the parameter type is not recognized
+        """
+
+        if parameter_value.type == rcl_msg.ParameterType.PARAMETER_STRING:
+            parameter_value.string_value = str(value)
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_INTEGER:
+            parameter_value.integer_value = int(value)
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_DOUBLE:
+            parameter_value.double_value = float(value)
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_BOOL:
+            parameter_value.bool_value = bool(value)
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_STRING_ARRAY:
+            parameter_value.string_array_value = value
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_INTEGER_ARRAY:
+            parameter_value.integer_array_value = value
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_DOUBLE_ARRAY:
+            parameter_value.double_array_value = value
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_BOOL_ARRAY:
+            parameter_value.bool_array_value = value
+        
+        else:
+            raise ValueError("Type " + str(parameter_value.type) + " not recognized.")
+
+        return parameter_value
 
 ###############################################################################
 # Main
@@ -1272,9 +1425,6 @@ def main():
     node = ConfigurationServer()
 
     try:
-        # executor = rclpy.executors.MultiThreadedExecutor()
-        # executor.add_node(node)
-        # executor.spin()
         rclpy.spin(node)
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException, rclpy.exceptions.ROSInterruptException):
         
