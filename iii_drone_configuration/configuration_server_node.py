@@ -141,6 +141,8 @@ class ConfigurationServer(Node):
 
         self.get_logger().info("ConfigurationServer.__init__(): Node " + node_name + " initialized successfully, ready for configuration.")
 
+        self.get_logger().info("ConfigurationServer.__init__(): test ")
+
     def __del__(self):
         if rclpy.ok():
             self.get_logger().info("ConfigurationServer.__del__(): Deleting ConfigurationServer object.")
@@ -1270,10 +1272,10 @@ def main():
     node = ConfigurationServer()
 
     try:
-        executor = rclpy.executors.MultiThreadedExecutor()
-        executor.add_node(node)
-        executor.spin()
-        # rclpy.spin(node)
+        # executor = rclpy.executors.MultiThreadedExecutor()
+        # executor.add_node(node)
+        # executor.spin()
+        rclpy.spin(node)
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException, rclpy.exceptions.ROSInterruptException):
         
         if rclpy.ok():
