@@ -5,6 +5,7 @@
 ###############################################################################
 
 import rclpy
+import rclpy.lifecycle
 import rclpy.parameter
 from rclpy.service import Service
 from rclpy.subscription import Subscription
@@ -24,6 +25,7 @@ import gc
 from iii_drone_interfaces.srv import DeclareParameters, UndeclareParameters, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
 
 from iii_drone_configuration.parameter_handler import ParameterHandler
+import rclpy.subscription
 
 #########################################################################
 # Debugging:
@@ -126,22 +128,15 @@ class ConfigurationServer(Node):
         self.get_current_parameter_file_service: Optional[Service] = None
         
         self.set_current_parameter_file_as_default_service: Optional[Service] = None
-        
-        self.set_parameter_event_callback_handler: Optional[Callable[[List[rclpy.parameter.Parameter]], rcl_msg.SetParametersResult]] = None
 
         #/parameter_events topic subscriber:
         self.is_active = False
         
-        self.parameter_events_subscription = self.create_subscription(
-            rcl_msg.ParameterEvent,
-            "/parameter_events",
-            self.parameter_events_callback,
-            10
-        )
+        self.parameter_events_subscription: Optional[rclpy.subscription.Subscription] = None
+
+        self.parameter_callback_registered: bool = False
 
         self.get_logger().info("ConfigurationServer.__init__(): Node " + node_name + " initialized successfully, ready for configuration.")
-
-        self.get_logger().info("ConfigurationServer.__init__(): test ")
 
     def __del__(self):
         if rclpy.ok():
@@ -166,7 +161,6 @@ class ConfigurationServer(Node):
 
         # Get user:
         self.iii_config_dir = os.path.join(os.getenv("CONFIG_BASE_DIR", default="~/.config"), "iii_drone")
-
 
         parameters_path_postfix = str(self.get_parameter("parameters_path_postfix").value)
         
@@ -271,6 +265,13 @@ class ConfigurationServer(Node):
         if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
             self.get_logger().error("ConfigurationServer.on_activate(): Base class activation failed.")
             return ret
+
+        self.parameter_events_subscription = self.create_subscription(
+            rcl_msg.ParameterEvent,
+            "/parameter_events",
+            self.parameter_events_callback,
+            10
+        )
         
         # Initialize services:
         self.declare_parameters_service = self.create_service(
@@ -334,7 +335,9 @@ class ConfigurationServer(Node):
         )
         
         # Service callback that gets called before a parameter is set:
-        self.set_parameter_event_callback_handler = self.add_on_set_parameters_callback(self.set_parameter_event_callback)
+        self.add_on_set_parameters_callback(self.set_parameter_event_callback)
+
+        self.parameter_callback_registered = True
 
         self.is_active = True
 
@@ -364,6 +367,11 @@ class ConfigurationServer(Node):
         
     def _deactivate(self):
         self.get_logger().debug("ConfigurationServer._deactivate(): Deactivating ConfigurationServer object.")
+
+        if self.parameter_events_subscription is not None:
+            self.destroy_subscription(self.parameter_events_subscription)
+            del self.parameter_events_subscription
+            self.parameter_events_subscription = None
 
         if self.declare_parameters_service is not None:
             self.declare_parameters_service.destroy()
@@ -415,10 +423,9 @@ class ConfigurationServer(Node):
             del self.set_current_parameter_file_as_default_service
             self.set_current_parameter_file_as_default_service = None
 
-        if self.set_parameter_event_callback_handler is not None:
-            self.remove_on_set_parameters_callback(self.set_parameter_event_callback_handler)
-            del self.set_parameter_event_callback_handler
-            self.set_parameter_event_callback_handler = None
+        if self.parameter_callback_registered:
+            self.remove_on_set_parameters_callback(self.set_parameter_event_callback)
+            self.parameter_callback_registered = False
 
         self.is_active = False
         
