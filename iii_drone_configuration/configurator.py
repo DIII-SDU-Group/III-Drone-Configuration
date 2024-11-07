@@ -96,19 +96,42 @@ class Configurator:
         
         self.initialize(self.parameter_yaml_path)
 
+        self.is_cleaned_up = False
+
     # Destructor
-    def __del__(self):
-        if rclpy.ok():
-            self.node.get_logger().debug("Configurator.__del__")
+    def cleanup(self):
+        if self.is_cleaned_up:
+            return
         
-        self.parameter_events_subscriber.destroy()
+        if rclpy.ok():
+            self.node.get_logger().debug("Configurator.cleanup")
+        
+        # self.parameter_events_subscriber.destroy()
+        self.node.destroy_publisher(self.parameter_events_subscriber)
+        self.parameter_events_subscriber = None
         
         self.parameter_bundles.clear()
         
         if rclpy.ok():
             self.undeclare_parameters()
             
-            self.node.get_logger().debug("Configurator.__del__: Parameters undeclared")
+            self.node.get_logger().debug("Configurator.cleanup: Parameters undeclared")
+
+        self.configurator_node.destroy_client(self.declare_parameters_client)
+        self.declare_parameters_client = None
+        self.configurator_node.destroy_client(self.undeclare_parameters_client)
+        self.undeclare_parameters_client = None
+        self.configurator_node.destroy_client(self.get_parameters_client)
+        self.get_parameters_client = None
+        
+        self.configurator_node.destroy_node()
+        self.configurator_node = None
+        
+        self.node.get_logger().debug("Configurator.cleanup: Done")
+        
+        self.node = None
+
+        self.is_cleaned_up = True
 
     def get_parameter(
         self, 
