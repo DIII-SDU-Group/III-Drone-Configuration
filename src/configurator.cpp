@@ -36,7 +36,8 @@ Configurator<nodeT>::Configurator(
 
     configurator_node_ = std::make_shared<rclcpp::Node>(
         config_node_name,
-        namespace_
+        namespace_,
+        rclcpp::NodeOptions().use_intra_process_comms(true)
     );
 
     declare_parameters_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::DeclareParameters>(
