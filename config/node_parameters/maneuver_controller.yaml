@@ -110,6 +110,9 @@ parameters:
   cable_landing_reference_truncate_radius:
     name: "/control/maneuver_controller/cable_landing_reference_truncate_radius"
     type: "float"
+  cable_landing_target_upwards_velocity:
+    name: "/control/maneuver_controller/cable_landing_target_upwards_velocity"
+    type: "float"
   cable_landing_reached_position_euclidean_distance_threshold:
     name: "/control/maneuver_controller/cable_landing_reached_position_euclidean_distance_threshold"
     type: "float"
@@ -281,6 +284,9 @@ parameter_bundles:
       update: false
 
   cable_landing_maneuver_server:
+    cable_landing_target_upwards_velocity:
+      remap_name: "cable_landing_target_upwards_velocity"
+      update: true
     cable_landing_min_z_distance:
       remap_name: "cable_landing_min_z_distance"
       update: true

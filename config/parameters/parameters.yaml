@@ -254,6 +254,11 @@ control:
       value: 1.0
       min: 0.1
       max: 2.0
+    cable_landing_target_upwards_velocity:
+      type: float
+      value: 0.5
+      min: 0.0
+      max: 5.0
     cable_landing_min_z_distance:
       type: float
       value: 1.0
