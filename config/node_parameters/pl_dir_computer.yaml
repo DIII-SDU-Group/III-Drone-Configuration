@@ -1,4 +1,7 @@
 parameters:
+  begin_running:
+    name: "/perception/begin_running"
+    type: "bool"
   kf_r:
     name: "/perception/pl_dir_computer/kf_r"
     type: "float"

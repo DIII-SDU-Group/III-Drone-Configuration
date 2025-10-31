@@ -2,7 +2,8 @@
   ros__parameters:
     parameters_path_postfix: "parameters/"
     node_parameters_path_postfix: "node_parameters/"
-    default_parameter_file: "parameters.yaml"
+    default_parameter_file: "parameters_real.yaml"
+    sim_parameter_file: "parameters_sim.yaml"
     use_sim_time: true
 
 sensor:
@@ -18,3 +19,8 @@ sensor:
         image_height: 480
         camera_name: "test_camera"
         camera_info_url: "package://usb_cam/config/camera_info.yaml"
+
+supervision:
+  supervisor:
+    ros__parameters:
+      monitor_node_states: false

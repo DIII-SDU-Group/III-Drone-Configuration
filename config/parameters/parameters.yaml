@@ -1,4 +1,8 @@
 perception:
+  begin_running:
+    type: bool
+    value: false
+    constant: true
   hough_transformer:
     canny_low_threshold:
       type: int
@@ -24,10 +28,6 @@ perception:
       value: 25
       constant: true
   pl_mapper:
-    pl_mapper_begin_running:
-      type: bool
-      value: false
-      constant: true
     kf_r:
       type: float
       value: 0.999
@@ -54,7 +54,7 @@ perception:
       min: /perception/pl_mapper/alive_cnt_high_thresh+1
     min_point_dist:
       type: float
-      value: 0.5
+      value: 0.99
       min: 0.05
       max: 2.0
     max_point_dist:
@@ -103,6 +103,9 @@ perception:
       type: bool
       value: true
       constant: false
+    use_inter_line_positions:
+      type: bool
+      value: true
 sensor:
   iwr6843_pcl_pub:
     cli_port:
@@ -144,13 +147,13 @@ control:
       max: 1.0
     landed_altitude_threshold_on_start:
       type: float
-      value: 1.
+      value: 1.0
       min: 0.1
       max: 2.0
     on_cable_max_euc_distance:
       type: float
       value: 0.1
-      min: 0.05
+      min: /control/maneuver_controller/cable_landing_reached_position_euclidean_distance_threshold
       max: 0.5
     fail_on_unable_to_locate:
       type: bool
@@ -191,6 +194,18 @@ control:
       value: 50
       min: 10
       max: 500
+      constant: true
+    reference_callback_provider_publish_period_ms:
+      type: int
+      value: 100
+      min: 10
+      max: 2000
+      constant: true
+    maneuver_completion_token_acquisition_timeout_s:
+      type: float
+      value: 0.1
+      min: 0.001
+      max: 0.1
       constant: true
     use_nans_when_hovering:
       type: bool
@@ -237,8 +252,13 @@ control:
     minimum_target_altitude:
       type: float
       value: 1.0
-      min: 0.5
+      min: 0.1
       max: 2.0
+    cable_landing_target_upwards_velocity:
+      type: float
+      value: 0.5
+      min: 0.0
+      max: 5.0
     cable_landing_min_z_distance:
       type: float
       value: 1.0
@@ -284,16 +304,40 @@ control:
       value: 1.570796327
       min: 0.1
       max: 10.0
+    cable_landing_safety_margin_max_negative_vertical_distance:
+      type: float
+      value: 0.05
+      min: 0.01
+      max: 0.1
+    cable_landing_safety_margin_cone_slope:
+      type: float
+      value: 1.0
+      min: 0.5
+      max: 2.0
+    cable_landing_safety_margin_cone_tolerance:
+      type: float
+      value: 0.05
+      min: 0.01
+      max: 0.5
     cable_landing_reference_truncate_radius:
       type: float
       value: 0.25
       min: 0.1
       max: 1.0
+    cable_landing_reached_position_euclidean_distance_threshold:
+      type: float
+      value: 0.1
+      min: 0.01
+      max: 0.25
     cable_takeoff_min_target_cable_distance:
       type: float
       value: 0.5
       min: 0.1
       max: /control/maneuver_controller/cable_takeoff_max_target_cable_distance
+    use_gripper_status_condition:
+      type: bool
+      value: false
+      constant: true
     cable_takeoff_max_target_cable_distance:
       type: float
       value: 2.0
@@ -301,11 +345,10 @@ control:
       max: 3.0
     generate_trajectories_asynchronously_with_delay:
       type: bool
-      value: true
-      constant: true
+      value: false
     generate_trajectories_poll_period_ms:
       type: int
-      value: 1
+      value: 5
       min: 1
       max: /control/maneuver_controller/maneuver_execution_period_ms / 10
       constant: true
@@ -315,6 +358,18 @@ control:
       min: /control/maneuver_controller/generate_trajectories_poll_period_ms
       max: /control/maneuver_controller/maneuver_execution_period_ms / 2
       constant: true
+    fly_to_position_use_mpc:
+      type: bool
+      value: false
+    fly_to_object_use_mpc:
+      type: bool
+      value: true
+    cable_landing_use_mpc:
+      type: bool
+      value: true
+    cable_takeoff_use_mpc:
+      type: bool
+      value: true
   dt:
     type: float
     value: 0.2
@@ -330,20 +385,20 @@ control:
       constant: true
     MPC_use_state_feedback:
       type: bool
-      value: false
+      value: true
     position_MPC_vx_max:
       type: float
-      value: 0.5
+      value: 1.5
       min: 0.1
       max: 5.0
     position_MPC_vy_max:
       type: float
-      value: 0.5
+      value: 1.5
       min: 0.1
       max: 5.0
     position_MPC_vz_max:
       type: float
-      value: 0.5
+      value: 3.0
       min: 0.1
       max: 5.0
     position_MPC_ax_max:
@@ -363,27 +418,27 @@ control:
       max: 5.0
     position_MPC_wx:
       type: float
-      value: 1.0
+      value: 1.1
       min: 0.0
     position_MPC_wy:
       type: float
-      value: 1.0
+      value: 1.1
       min: 0.0
     position_MPC_wz:
       type: float
-      value: 1.0
+      value: 1.1
       min: 0.0
     position_MPC_wvx:
       type: float
-      value: 1.0
+      value: 0.9
       min: 0.0
     position_MPC_wvy:
       type: float
-      value: 1.0
+      value: 0.9
       min: 0.0
     position_MPC_wvz:
       type: float
-      value: 1.0
+      value: 0.9
       min: 0.0
     position_MPC_wax:
       type: float
@@ -399,15 +454,15 @@ control:
       min: 0.0
     position_MPC_wjx:
       type: float
-      value: 0.1
+      value: 0.05
       min: 0.0
     position_MPC_wjy:
       type: float
-      value: 0.1
+      value: 0.05
       min: 0.0
     position_MPC_wjz:
       type: float
-      value: 0.1
+      value: 0.05
       min: 0.0
     cable_landing_MPC_vx_max:
       type: float
@@ -565,6 +620,17 @@ control:
       type: float
       value: 0.1
       min: 0.0
+  trajectory_interpolator:
+    interpolation_avg_velocity_m_s:
+      type: float
+      value: 0.5
+      min: 0.1
+      max: 5.0
+    reference_trajectory_length_N:
+      type: int
+      value: 10
+      min: 1
+      max: 20
 payload:
   charger_gripper:
     gripper_command_only:
@@ -669,63 +735,57 @@ payload:
       value: 10
       min: 1
 mission:
-  continuous_mission_orchestrator:
-    under_cable_target_distance:
-      type: float
-      value: 1.5
-      min: 0.5
-      max: 2.0
-    use_charger_gripper_info:
-      type: bool
-      value: true
-      constant: true
-    cable_landing_max_retries:
-      type: int
-      value: 3
-      min: 1
-      max: 10
-    battery_voltage_low_threshold:
-      type: float
-      value: 22.2
-      min: 19.0
-      max: 25.2
-    battery_voltage_high_threshold:
-      type: float
-      value: 25.0
-      min: 19.0
-      max: 25.2
-    charging_power_low_threshold:
-      type: float
-      value: 0.1
-      min: 0.01
-    action_timeout_ms:
-      type: int
-      value: 1000
-      min: 1
-    charging_minimum_duration_s:
-      type: int
-      value: 10
-      min: 0
-    charging_maximum_duration_s:
-      type: int
-      value: -1
-      min: -1
+  mission_specification_file:
+    type: string
+    value: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
+    constant: true
+  use_nans_when_hovering:
+    type: bool
+    value: true
+    constant: false
+  max_failed_attempts_during_maneuver:
+    type: int
+    value: 3
+    min: 1
+    max: 10
+    constant: false
+  wait_for_maneuver_start_timeout_ms:
+    type: int
+    value: 1000
+    min: 1
+    max: 10000
+    constant: false
+  get_reference_timeout_ms:
+    type: int
+    value: 450
+    min: 10
+    max: 500
+    constant: false
+  manual_stick_input_threshold:
+    type: float
+    value: 0.1
+    constant: false
+    min: 0.01
+    max: 1.0
+  mission_done_select_mode:
+    type: string
+    value: land
+    options:
+    - land
+    - hold
+    - position
 behavior:
   server_timeout_ms:
     type: int
-    value: 1000
+    value: 60000
     min: 10
-    max: 10000
+    max: 60000
     constant: true
   wait_for_server_timeout_ms:
     type: int
-    value: 1000
+    value: 60000
     min: 10
-    max: 10000
-    constant: true
-  tree_xml_file:
-    type: string
-    value: /home/ffn/Workspace/ros2_humble_ws/src/III-Drone-Core/behavior_trees/test_tree.xml
+    max: 60000
     constant: true
   tick_period_ms:
     type: int
@@ -752,6 +812,36 @@ behavior:
     - closest_xy_above
     - closest_z_above
     - farthest_above
+  hover_on_cable_target_z_velocity:
+    type: float
+    value: 0.1
+    min: 0.0
+    max: 5.0
+  hover_on_cable_target_yaw_rate:
+    type: float
+    value: 0.0
+    min: -3.1415
+    max: 3.1415
+  top_clearance_m:
+    type: float
+    value: 2.0
+    min: 0.5
+    max: 5.0
+  horizontal_clearance_m:
+    type: float
+    value: 2.0
+    min: 0.5
+    max: 5.0
+  under_cable_clearance_m:
+    type: float
+    value: 2.0
+    min: 0.5
+    max: 3.0
+  inside_powerline_xy_distance_threshold_m:
+    type: float
+    value: 3.0
+    min: 0.5
+    max: 5.0
 tf:
   world_frame_id:
     type: string
@@ -811,9 +901,11 @@ tf:
     drone_to_mmwave:
       type: float_array
       value:
-      - 0.035
-      - -0.23
-      - 0.28
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.1
       - 3.1415
       - -1.57079632679
       - 0.0

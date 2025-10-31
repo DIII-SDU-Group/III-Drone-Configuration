@@ -5,9 +5,6 @@ parameters:
   wait_for_server_timeout_ms:
     name: "/behavior/wait_for_server_timeout_ms"
     type: "int"
-  tree_xml_file:
-    name: "/behavior/tree_xml_file"
-    type: "string"
   tick_period_ms:
     name: "/behavior/tick_period_ms"
     type: "int"
@@ -26,35 +23,38 @@ parameters:
   select_target_line_method:
     name: "/behavior/select_target_line_method"
     type: "string"
-  dt:
-    name: "/control/dt"
+  hover_on_cable_target_z_velocity:
+    name: "/behavior/hover_on_cable_target_z_velocity"
     type: "float"
+  hover_on_cable_target_yaw_rate:
+    name: "/behavior/hover_on_cable_target_yaw_rate"
+    type: "float"
+  
+  top_clearance_m:
+    name: "/behavior/top_clearance_m"
+    type: "float"
+  horizontal_clearance_m:
+    name: "/behavior/horizontal_clearance_m"
+    type: "float"
+  under_cable_clearance_m:
+    name: "/behavior/under_cable_clearance_m"
+    type: "float"
+  inside_powerline_xy_distance_threshold_m:
+    name: "/behavior/inside_powerline_xy_distance_threshold_m"
+    type: "float"
+
   drone_frame_id:
     name: "/tf/drone_frame_id"
     type: "string"
   gripper_frame_id:
     name: "/tf/cable_gripper_frame_id"
     type: "string"
+  world_frame_id:
+    name: "/tf/world_frame_id"
+    type: "string"
 
 parameter_bundles:
-  take_charging_position_tree:
-    server_timeout_ms:
-      remap_name: "server_timeout_ms"
-      update: false
-    wait_for_server_timeout_ms:
-      remap_name: "wait_for_server_timeout_ms"
-      update: false
-    tree_xml_file:
-      remap_name: "tree_xml_file"
-      update: false
-    tick_period_ms:
-      remap_name: "tick_period_ms"
-      update: false
-    dt:
-      remap_name: "dt"
-      update: false
-
-  fly_to_object_maneuver_action_node:
+  target_provider:
     target_cable_distance:
       remap_name: "target_cable_distance"
       update: true
@@ -72,6 +72,9 @@ parameter_bundles:
     cable_takeoff_max_target_cable_distance:
       remap_name: "cable_takeoff_max_target_cable_distance"
       update: true
+    target_cable_distance:
+      remap_name: "target_cable_distance"
+      update: true
 
   select_target_line_condition_node:
     line_min_height_above_drone:
@@ -83,3 +86,29 @@ parameter_bundles:
     drone_frame_id:
       remap_name: "drone_frame_id"
       update: false
+
+  hover_on_cable_maneuver_action_node:
+    hover_on_cable_target_z_velocity:
+      remap_name: "hover_on_cable_target_z_velocity"
+      update: true
+    hover_on_cable_target_yaw_rate:
+      remap_name: "hover_on_cable_target_yaw_rate"
+      update: true
+
+  powerline_waypoint_provider_action_node:
+    top_clearance_m:
+      remap_name: "top_clearance_m"
+      update: true
+    horizontal_clearance_m:
+      remap_name: "horizontal_clearance_m"
+      update: true
+    inside_powerline_xy_distance_threshold_m:
+      remap_name: "inside_powerline_xy_distance_threshold_m"
+      update: true
+    under_cable_clearance_m:
+      remap_name: "under_cable_clearance_m"
+      update: true
+    world_frame_id:
+      remap_name: "world_frame_id"
+      update: false
+

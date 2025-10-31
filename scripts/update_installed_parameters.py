@@ -39,8 +39,8 @@ def main():
     parser = argparse.ArgumentParser(description='Update installed parameters')
     parser.add_argument('parameter_file', metavar="FILE", type=str, help='Parameter file to update from')
     parser.add_argument('parameter_install_dir', metavar="DIR", type=str, help='Installed parameters directory')
-    parser.add_argument('--remove-legacy-parameters', help='Remove legacy parameters from installed parameter files', action='store_true', default=True)
-    parser.add_argument('--overwrite-existing-parameters', help='Overwrite existing parameters in installed parameter files', action='store_true', default=True)
+    parser.add_argument('--remove-legacy-parameters', help='Remove legacy parameters from installed parameter files', action='store_true')
+    parser.add_argument('--overwrite-existing-parameters', help='Overwrite existing parameters in installed parameter files', action='store_true')
     args = parser.parse_args()
 
     update_ph = ParameterHandler.from_parameter_file(args.parameter_file)

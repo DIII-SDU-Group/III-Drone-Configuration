@@ -5,23 +5,36 @@
 ###############################################################################
 
 import rclpy
+import rclpy.lifecycle
+import rclpy.parameter
 from rclpy.service import Service
 from rclpy.subscription import Subscription
 from rclpy.lifecycle import Node, State, TransitionCallbackReturn
-from rcl_interfaces.msg import ParameterEvent, SetParametersResult
-from rclpy.parameter import Parameter, ParameterValue
 from rclpy.exceptions import ParameterNotDeclaredException
+import rcl_interfaces.msg as rcl_msg
 
 import os
+import sys
 import yaml
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Callable, List
 import time
 import threading
+import gc
 
-from iii_drone_interfaces.srv import DeclareParameter, UndeclareParameter, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
+from iii_drone_interfaces.srv import DeclareParameters, UndeclareParameters, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
 
 from iii_drone_configuration.parameter_handler import ParameterHandler
+import rclpy.subscription
+
+#########################################################################
+# Debugging:
+#########################################################################
+
+SIMULATION = os.environ.get('SIMULATION', 'false').lower() == 'true'
+
+if SIMULATION:
+    import debugpy
 
 ###############################################################################
 # Class
@@ -68,7 +81,15 @@ class ConfigurationServer(Node):
         self.get_logger().info("ConfigurationServer.__init__(): Initializing node " + node_name + " in namespace " + namespace + ".")
 
         self.declare_parameter("parameters_path_postfix", "parameters")
-        self.declare_parameter("default_parameter_file", "parameters.yaml")
+        self.declare_parameter("default_parameter_file", "parameters_real.yaml")
+        self.declare_parameter("sim_parameter_file", "parameters_sim.yaml")
+
+        if not SIMULATION:
+            self.params_file = str(self.get_parameter("default_parameter_file").value)
+        else:
+            self.params_file = str(self.get_parameter("sim_parameter_file").value)
+
+        self.get_logger().info("ConfigurationServer.__init__(): Using parameter file: " + self.params_file + ".")
 
         self.iii_config_dir: Optional[str] = None
 
@@ -88,9 +109,9 @@ class ConfigurationServer(Node):
 
         self.param_success: Optional[bool] = None
 
-        self.declare_parameter_service: Optional[Service] = None
+        self.declare_parameters_service: Optional[Service] = None
         
-        self.undeclare_parameter_service: Optional[Service] = None
+        self.undeclare_parameters_service: Optional[Service] = None
         
         self.get_parameter_yaml_service: Optional[Service] = None
         
@@ -107,18 +128,13 @@ class ConfigurationServer(Node):
         self.get_current_parameter_file_service: Optional[Service] = None
         
         self.set_current_parameter_file_as_default_service: Optional[Service] = None
-        
-        self.set_parameter_event_callback_handler: Optional[Callable[[List[Parameter]], SetParametersResult]] = None
 
         #/parameter_events topic subscriber:
         self.is_active = False
         
-        self.parameter_events_subscription = self.create_subscription(
-            ParameterEvent,
-            "/parameter_events",
-            self.parameter_events_callback,
-            10
-        )
+        self.parameter_events_subscription: Optional[rclpy.subscription.Subscription] = None
+
+        self.parameter_callback_registered: bool = False
 
         self.get_logger().info("ConfigurationServer.__init__(): Node " + node_name + " initialized successfully, ready for configuration.")
 
@@ -146,7 +162,6 @@ class ConfigurationServer(Node):
         # Get user:
         self.iii_config_dir = os.path.join(os.getenv("CONFIG_BASE_DIR", default="~/.config"), "iii_drone")
 
-
         parameters_path_postfix = str(self.get_parameter("parameters_path_postfix").value)
         
         self.params_dir = os.path.join(self.iii_config_dir, parameters_path_postfix)
@@ -155,7 +170,12 @@ class ConfigurationServer(Node):
         # Replace "~" with "/home/<user>" in the path
         self.params_dir = self.params_dir.replace("~", os.getenv("HOME"))
         
-        params_file = str(self.get_parameter("default_parameter_file").value)
+        if not SIMULATION:
+            self.params_file = str(self.get_parameter("default_parameter_file").value)
+        else:
+            self.params_file = str(self.get_parameter("sim_parameter_file").value)
+
+        params_file = self.params_file
         
         if not self.validate_parameter_file_name(params_file):
             msg = "ConfigurationServer.on_configure(): Default parameter file name " + params_file + " is not valid."
@@ -197,6 +217,8 @@ class ConfigurationServer(Node):
             return ret
         
         self._cleanup()
+
+        gc.collect()
         
         self.get_logger().info("ConfigurationServer.on_cleanup(): ConfigurationServer cleaned up successfully.")
         
@@ -243,18 +265,25 @@ class ConfigurationServer(Node):
         if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
             self.get_logger().error("ConfigurationServer.on_activate(): Base class activation failed.")
             return ret
+
+        # self.parameter_events_subscription = self.create_subscription(
+        #     rcl_msg.ParameterEvent,
+        #     "/parameter_events",
+        #     self.parameter_events_callback,
+        #     10
+        # )
         
         # Initialize services:
-        self.declare_parameter_service = self.create_service(
-            DeclareParameter,
-            "declare_parameter",
-            self.declare_parameter_callback
+        self.declare_parameters_service = self.create_service(
+            DeclareParameters,
+            "declare_parameters",
+            self.declare_parameters_callback
         )
         
-        self.undeclare_parameter_service = self.create_service(
-            UndeclareParameter,
-            "undeclare_parameter",
-            self.undeclare_parameter_callback
+        self.undeclare_parameters_service = self.create_service(
+            UndeclareParameters,
+            "undeclare_parameters",
+            self.undeclare_parameters_callback
         )
         
         self.get_parameter_yaml_service = self.create_service(
@@ -306,7 +335,9 @@ class ConfigurationServer(Node):
         )
         
         # Service callback that gets called before a parameter is set:
-        self.set_parameter_event_callback_handler = self.add_on_set_parameters_callback(self.set_parameter_event_callback)
+        # self.add_on_set_parameters_callback(self.set_parameter_event_callback)
+
+        self.parameter_callback_registered = True
 
         self.is_active = True
 
@@ -327,6 +358,8 @@ class ConfigurationServer(Node):
             return ret
         
         self._deactivate()
+
+        gc.collect()
         
         self.get_logger().info("ConfigurationServer.on_deactivate(): ConfigurationServer deactivated successfully.")
         
@@ -335,45 +368,64 @@ class ConfigurationServer(Node):
     def _deactivate(self):
         self.get_logger().debug("ConfigurationServer._deactivate(): Deactivating ConfigurationServer object.")
 
-        if self.declare_parameter_service is not None:
-            self.declare_parameter_service.destroy()
-            self.declare_parameter_service = None
+        # if self.parameter_events_subscription is not None:
+        #     self.destroy_subscription(self.parameter_events_subscription)
+        #     del self.parameter_events_subscription
+        #     self.parameter_events_subscription = None
+
+        if self.declare_parameters_service is not None:
+            self.declare_parameters_service.destroy()
+            del self.declare_parameters_service
+            self.declare_parameters_service = None
+
+        if self.undeclare_parameters_service is not None:
+            self.undeclare_parameters_service.destroy()
+            del self.undeclare_parameters_service
+            self.undeclare_parameters_service = None
 
         if self.get_parameter_yaml_service is not None:
             self.get_parameter_yaml_service.destroy()
+            del self.get_parameter_yaml_service
             self.get_parameter_yaml_service = None
 
         if self.get_declared_parameters_service is not None:
             self.get_declared_parameters_service.destroy()
+            del self.get_declared_parameters_service
             self.get_declared_parameters_service = None
 
         if self.save_parameters_service is not None:
             self.save_parameters_service.destroy()
+            del self.save_parameters_service
             self.save_parameters_service = None
 
         if self.get_parameter_files_service is not None:
             self.get_parameter_files_service.destroy()
+            del self.get_parameter_files_service
             self.get_parameter_files_service = None
 
         if self.load_parameters_service is not None:
             self.load_parameters_service.destroy()
+            del self.load_parameters_service
             self.load_parameters_service = None
 
         if self.set_parameter_from_gc_service is not None:
             self.set_parameter_from_gc_service.destroy()
+            del self.set_parameter_from_gc_service
             self.set_parameter_from_gc_service = None
 
         if self.get_current_parameter_file_service is not None:
             self.get_current_parameter_file_service.destroy()
+            del self.get_current_parameter_file_service
             self.get_current_parameter_file_service = None
 
         if self.set_current_parameter_file_as_default_service is not None:
             self.set_current_parameter_file_as_default_service.destroy()
+            del self.set_current_parameter_file_as_default_service
             self.set_current_parameter_file_as_default_service = None
 
-        if self.set_parameter_event_callback_handler is not None:
-            self.remove_on_set_parameters_callback(self.set_parameter_event_callback_handler)
-            self.set_parameter_event_callback_handler = None
+        # if self.parameter_callback_registered:
+        #     self.remove_on_set_parameters_callback(self.set_parameter_event_callback)
+        #     self.parameter_callback_registered = False
 
         self.is_active = False
         
@@ -456,8 +508,8 @@ class ConfigurationServer(Node):
         
     def set_parameter_event_callback(
         self,
-        parameters: "list[Parameter]"
-    ) -> SetParametersResult:
+        parameters: "list[rcl_msg.Parameter]"
+    ) -> rcl_msg.SetParametersResult:
         """
         Callback for parameter events, gets called before a parameter is set. 
         Rejects if the parameter is constant, if the type or value do not match the loaded parameters,
@@ -470,7 +522,9 @@ class ConfigurationServer(Node):
             SetParametersResult: Result of the callback.
         """
 
-        result = SetParametersResult()
+        self.get_logger().debug("ConfigurationServer.set_parameter_event_callback()")
+
+        result = rcl_msg.SetParametersResult()
 
         for parameter in parameters:
             if parameter.name in self.declared_params:
@@ -521,7 +575,7 @@ class ConfigurationServer(Node):
     
     def parameter_events_callback(
         self,
-        parameter_event: ParameterEvent
+        parameter_event: rcl_msg.ParameterEvent
     ) -> None:
         """
         Callback for parameter events, gets called after a parameter is set.
@@ -536,6 +590,8 @@ class ConfigurationServer(Node):
             RuntimeError: If the param can not be set for whatever reason, since this should not happen as it is verified in the pre-set parameter callback.
         """
 
+        self.get_logger().debug("ConfigurationServer.parameter_events_callback()")
+
         if not self.is_active:
             return
 
@@ -548,7 +604,7 @@ class ConfigurationServer(Node):
             raise RuntimeError("Deleted parameters not supported.")
         
         for parameter in parameter_event.changed_parameters + parameter_event.new_parameters:
-            if parameter.name == "default_parameter_file" or "use_sim_time" in parameter.name:
+            if parameter.name == self.params_file or "use_sim_time" in parameter.name:
                 continue
             try:
                 param_value = self._get_parameter_value_from_msg(
@@ -595,7 +651,7 @@ class ConfigurationServer(Node):
     def _get_parameter_value_from_msg(
         self,
         parameter_name: str,
-        parameter_value: ParameterValue
+        parameter_value: rcl_msg.ParameterValue
     ) -> str|int|float|bool|list[str|int|float|bool]:
         """
         Gets the parameter value from the ParameterValue object 
@@ -612,6 +668,8 @@ class ConfigurationServer(Node):
             KeyError: If the parameter name is not listed in the loaded parameters.
             TypeError: If the parameter type is not recognized.
         """
+
+        self.get_logger().debug("ConfigurationServer._get_parameter_value_from_msg()")
 
         param_dict = self.parameter_handler.get_param(parameter_name)
 
@@ -642,25 +700,42 @@ class ConfigurationServer(Node):
         else:
             raise TypeError("Type " + str(param_dict["type"]) + " not recognized.")
 
-    def declare_parameter_callback(
+    def declare_parameters_callback(
         self,
-        request: DeclareParameter.Request,
-        response: DeclareParameter.Response
-    ) -> DeclareParameter.Response:
+        request: DeclareParameters.Request,
+        response: DeclareParameters.Response
+    ) -> DeclareParameters.Response:
         """
-        Callback for declare_parameter service. Checks that the the parameter has been loaded,
-        and that the type matches the loaded type.
+        Callback for declare_parameters service. Checks that the parameters has been loaded,
+        and that the types matches the loaded types.
 
         Parameters:
-            request (DeclareParameter.Request): Service request.
-            response (DeclareParameter.Response): Service response.
+            request (DeclareParameters.Request): Service request.
+            response (DeclareParameters.Response): Service response.
 
         Returns:
-            DeclareParameter.Response: Service response.
+            DeclareParameters.Response: Service response.
         """
 
+        self.get_logger().debug("ConfigurationServer.declare_parameters_callback()")
+
+        if len(request.names) == 0:
+            response.succeeded = False
+            response.message = "No parameters to declare."
+
+            return response
+        
+        if len(request.names) != len(request.types):
+            response.succeeded = False
+            response.message = "Number of names and types do not match."
+
+            return response
+        
+        param_dicts = {}
+
         try:
-            param_dict = self.parameter_handler.get_param(request.name)
+            for name in request.names:
+                param_dicts[name] = self.parameter_handler.get_param(name)
         
         except KeyError as e:
             response.succeeded = False
@@ -668,96 +743,142 @@ class ConfigurationServer(Node):
 
             return response
 
-        already_declared = False
-
-        if request.name in self.declared_params:
-            already_declared = True
-
-        if request.type != param_dict["type"]:
-            response.succeeded = False
-            response.message = "Type " + str(request.type) + " does not match type " + str(param_dict["type"]) + " in loaded parameters for parameter " + request.name + "."
-
-            return response
-
         if request.node_name == "":
             response.succeeded = False
             response.message = "Node name is empty."
 
-            return response
-
-        self.get_logger().info("ConfigurationServer.declare_parameter_callback(): Declaring parameter " + request.name + " with value " + str(param_dict["value"]) + " of type " + str(param_dict["type"]) + ".")
-        
-        if already_declared:
-            self.declared_params_nodes[request.name].append(request.node_name)
-            response.succeeded = True
-            response.message = "Parameter already declared."
+            self.get_logger().error("ConfigurationServer.declare_parameters_callback(): " + response.message)
 
             return response
-        
-        value = param_dict["value"]
 
-        self.declare_parameter(
-            request.name,
-            value
-        )
+        failed_parameters = []
+        already_declared_parameters = []
 
-        self.declared_params[request.name] = value
-        self.declared_params_nodes[request.name] = [request.node_name]
-        self.parameters_initialized[request.name] = False
+        for i in range(len(request.names)):
+            name = request.names[i]
+            param_type = request.types[i]
+            
+            param_dict = param_dicts[name]
+
+            if name in self.declared_params:
+                already_declared_parameters.append(name)
+                continue
+
+            if param_type != param_dict["type"]:
+                failed_parameters.append(name)
+                continue
+
+        if len(failed_parameters) > 0:
+            response.succeeded = False
+            response.message = "Failed to declare parameters. Types do not match loaded parameters. Conflicting parameters: " + str(failed_parameters) + "."
+            
+            return response
+
+        values: List[rcl_msg.ParameterValue] = []
+
+        def get_parameter_value_msg(
+            _type: str,
+            value: str|int|float|bool|list[str|int|float|bool]
+        ) -> rcl_msg.ParameterValue:
+            parameter_value = rcl_msg.ParameterValue()
+            parameter_value.type = self._string_to_parameter_type(_type)
+            parameter_value = self._set_parameter_value(
+                parameter_value,
+                value
+            )
+            
+            return parameter_value
+
+        for name in request.names:
+            param_dict = param_dicts[name]
+            value = param_dict["value"]
+            
+            if name in already_declared_parameters:
+                self.declared_params_nodes[name].append(request.node_name)
+                
+                parameter_value = get_parameter_value_msg(
+                    param_dict["type"], 
+                    value
+                )
+                values.append(parameter_value)
+                
+                continue
+            
+            self.declare_parameter(
+                name,
+                value
+            )
+            
+            parameter_value = get_parameter_value_msg(
+                param_dict["type"], 
+                value
+            )
+            values.append(parameter_value)
+
+            self.declared_params[name] = value
+            self.declared_params_nodes[name] = [request.node_name]
+            self.parameters_initialized[name] = False
 
         response.succeeded = True
         response.message = "Parameter declared successfully."
+        response.values = values
+        
+        if len(already_declared_parameters) > 0:
+            response.message += " Already declared parameters: " + str(already_declared_parameters) + "."
 
         return response
 
-    def undeclare_parameter_callback(
+    def undeclare_parameters_callback(
         self,
-        request: UndeclareParameter.Request,
-        response: UndeclareParameter.Response
-    ) -> UndeclareParameter.Response:
+        request: UndeclareParameters.Request,
+        response: UndeclareParameters.Response
+    ) -> UndeclareParameters.Response:
         """
-        Callback for undeclare_parameter service. Removes the node from list of nodes that declared the parameter.
+        Callback for undeclare_parameters service. Removes the node from list of nodes that declared the parameter for all parameters.
         If the node name is the last one, undeclares the parameter.
 
         Parameters:
-            request (UndeclareParameter.Request): Service request.
-            response (UndeclareParameter.Response): Service response.
+            request (UndeclareParameters.Request): Service request.
+            response (UndeclareParameters.Response): Service response.
 
         Returns:
-            UndeclareParameter.Response: Service response.
+            UndeclareParameters.Response: Service response.
         """
 
-        if self.declared_params is None or request.name not in self.declared_params:
+        self.get_logger().debug("ConfigurationServer.undeclare_parameters_callback()")
+
+        if self.declared_params is None:
             response.succeeded = False
-            response.message = "Parameter not declared."
+            response.message = "Parameters not declared."
 
             return response
 
-        if request.node_name not in self.declared_params_nodes[request.name]:
+        has_declared_parameter = False
+
+        self.get_logger().info("ConfigurationServer.undeclare_parameters_callback(): Undeclaring parameters for node " + request.node_name + ".")
+
+        declared_params_nodes_copy = self.declared_params_nodes.copy()
+
+        for name, nodes in declared_params_nodes_copy.items():
+            if request.node_name in nodes:
+                has_declared_parameter = True
+                
+                self.declared_params_nodes[name].remove(request.node_name)
+                
+                if self.declared_params_nodes[name] == []:
+                    self.undeclare_parameter(name)
+
+                    self.declared_params.pop(name)
+                    self.declared_params_nodes.pop(name)
+
+        if not has_declared_parameter:
             response.succeeded = False
-            response.message = "Node has not declared parameter."
+            response.message = "Node has not declared any parameters."
 
             return response
-
-        self.get_logger().info("ConfigurationServer.undeclare_parameter_callback(): Undeclaring parameter " + request.name + ".")
-
-        self.declared_params_nodes[request.name].remove(request.node_name)
-        
-        if self.declared_params_nodes[request.name] != []:
-            response.succeeded = True
-            response.message = "Node undeclared from parameter."
-
-            return response
-
-        self.undeclare_parameter(request.name)
-
-        # del self.declared_params[request.name]
-        # del self.declared_params_nodes[request.name]
-        self.declared_params.pop(request.name)
-        self.declared_params_nodes.pop(request.name)
 
         response.succeeded = True
-        response.message = "Parameter fully undeclared."
+        response.message = "Parameters fully undeclared for node."
 
         return response
     
@@ -776,6 +897,8 @@ class ConfigurationServer(Node):
         Returns:
             GetParameterYaml.Response: Service response.
         """
+
+        self.get_logger().debug("ConfigurationServer.get_parameter_yaml_callback()")
 
         response.yaml = self.parameter_handler.get_parameters_yaml_string()
 
@@ -797,6 +920,8 @@ class ConfigurationServer(Node):
             GetDeclaredParameters.Response: Service response.
         """
 
+        self.get_logger().debug("ConfigurationServer.get_declared_parameters_callback()")
+
         response.declared_parameters_yaml = yaml.dump(self.declared_params)
 
         return response
@@ -816,6 +941,8 @@ class ConfigurationServer(Node):
         Returns:
             SaveParameters.Response: Service response.
         """
+
+        self.get_logger().debug("ConfigurationServer.save_parameters_callback()")
         
         if request.file == "":
             # Get the current date and time
@@ -824,7 +951,10 @@ class ConfigurationServer(Node):
             # Format the date and time as a string in the format 'YYYYMMDD_HHMM'
             date_time_string = now.strftime('%Y%m%d_%H%M')
             
-            request.file = "parameters_" + date_time_string + ".yaml"
+            if not SIMULATION:
+                request.file = "parameters_real_" + date_time_string + ".yaml"
+            else:
+                request.file = "parameters_sim_" + date_time_string + ".yaml"
 
         self.get_logger().info("ConfigurationServer.save_parameters_callback(): Request to save parameters to file " + request.file + ".")
         
@@ -880,6 +1010,8 @@ class ConfigurationServer(Node):
         Returns:
             GetParameterFiles.Response: Service response.
         """
+
+        self.get_logger().debug("ConfigurationServer.get_parameter_files_callback()")
 
         parameter_files = os.listdir(self.params_dir)
 
@@ -946,7 +1078,7 @@ class ConfigurationServer(Node):
                 
             if changed_parameter_names != []:
                 changed_ros_parameters = [
-                    Parameter(
+                    rclpy.parameter.Parameter(
                         name=param_name,
                         value=self.parameter_handler.get_param_value(param_name)
                     ) for param_name in changed_parameter_names
@@ -992,6 +1124,8 @@ class ConfigurationServer(Node):
         request: SetParameterFromGC.Request,
         response: SetParameterFromGC.Response
     ) -> SetParameterFromGC.Response:
+        self.get_logger().info("ConfigurationServer.set_parameter_from_gc_callback()")
+        
         parameter_name = request.parameter_name
 
         try:
@@ -1051,8 +1185,8 @@ class ConfigurationServer(Node):
             if "constant" in parameter_dict and parameter_dict["constant"]:
                 response.message = "Parameter " + parameter_name + " successfully set to " + str(parameter_value) + ", but change will only take place after restarting system."
             else:
-                set_result: "list[SetParametersResult]" = self.set_parameters([
-                    Parameter(
+                set_result: "list[rcl_msg.SetParametersResult]" = self.set_parameters([
+                    rclpy.parameter.Parameter(
                         name=parameter_name,
                         value=parameter_value
                     )
@@ -1072,6 +1206,11 @@ class ConfigurationServer(Node):
                 True,
                 force_constant=True
             )
+
+            self.declared_params[parameter_name] = parameter_value
+            self.parameters_initialized[parameter_name] = True
+
+            self.get_logger().info("ConfigurationServer.set_parameter_from_gc_callback(): " + response.message)
             
             response.success = True
             
@@ -1088,6 +1227,7 @@ class ConfigurationServer(Node):
         request: GetCurrentParameterFile.Request,
         response: GetCurrentParameterFile.Response
     ) -> GetCurrentParameterFile.Response:
+        self.get_logger().debug("ConfigurationServer.get_current_parameter_file_callback()")
         response.default_parameter_file = self.get_parameter("default_parameter_file").value
         response.current_parameter_file = os.path.basename(self.params_file)
         
@@ -1098,6 +1238,7 @@ class ConfigurationServer(Node):
         request: SetCurrentParameterFileAsDefault.Request,
         response: SetCurrentParameterFileAsDefault.Response
     ) -> SetCurrentParameterFileAsDefault.Response:
+        self.get_logger().debug("ConfigurationServer.set_current_parameter_file_as_default_callback()")
         try:
             self.set_default_parameter_file(os.path.basename(self.params_file))
             
@@ -1123,6 +1264,8 @@ class ConfigurationServer(Node):
         Returns:
             bool: True if the file name is valid, False otherwise.
         """
+
+        self.get_logger().debug("ConfigurationServer.validate_parameter_file_name()")
 
         if file_name[-5:] != ".yaml":
             return False
@@ -1151,6 +1294,8 @@ class ConfigurationServer(Node):
         Parameters:
             file (str): File name.
         """
+
+        self.get_logger().debug("ConfigurationServer.set_default_parameter_file()")
         
         ros_params_lines = []
 
@@ -1158,7 +1303,7 @@ class ConfigurationServer(Node):
             ros_params_lines = ros_params_file.readlines()
             
         for i in range(len(ros_params_lines)):
-            if "default_parameter_file" in ros_params_lines[i]:
+            if not SIMULATION and "default_parameter_file" in ros_params_lines[i] or SIMULATION and "sim_parameter_file" in ros_params_lines[i]:
                 splitted_line = ros_params_lines[i].split(":")
                 splitted_line[1] = " " + f'"{file}"' + "\n"
                 ros_params_lines[i] = ":".join(splitted_line)
@@ -1169,27 +1314,130 @@ class ConfigurationServer(Node):
             ros_params_file.writelines(ros_params_lines)
             
         self.set_parameters([
-            Parameter(
-                name="default_parameter_file",
+            rclpy.parameter.Parameter(
+                name="default_parameter_file" if not SIMULATION else "sim_parameter_file",
                 value=file
             )
         ])
+
+    def _string_to_parameter_type(
+        self,
+        param_type: str
+    ) -> rcl_msg.ParameterType:
+        """
+        Converts a string to a ParameterType.
+        
+        Parameters:
+            param_type (str): Parameter type as a string.
+            
+        Returns:
+            ParameterType: Parameter type.
+            
+        Raises:
+            ValueError: If the parameter type is not recognized.
+            
+        """
+        
+        if param_type == "string":
+            return rcl_msg.ParameterType.PARAMETER_STRING
+        
+        elif param_type == "int":
+            return rcl_msg.ParameterType.PARAMETER_INTEGER
+        
+        elif param_type == "float":
+            return rcl_msg.ParameterType.PARAMETER_DOUBLE
+        
+        elif param_type == "bool":
+            return rcl_msg.ParameterType.PARAMETER_BOOL
+        
+        elif param_type == "string_array":
+            return rcl_msg.ParameterType.PARAMETER_STRING_ARRAY
+        
+        elif param_type == "int_array":
+            return rcl_msg.ParameterType.PARAMETER_INTEGER_ARRAY
+        
+        elif param_type == "float_array":
+            return rcl_msg.ParameterType.PARAMETER_DOUBLE_ARRAY
+        
+        elif param_type == "bool_array":
+            return rcl_msg.ParameterType.PARAMETER_BOOL_ARRAY
+        
+        else:
+            raise ValueError("Type " + param_type + " not recognized.")
+
+    def _set_parameter_value(
+        self,
+        parameter_value: rcl_msg.ParameterValue,
+        value: str|int|float|bool|list[str|int|float|bool]
+    ) -> rcl_msg.ParameterValue:
+        """
+        Sets the parameter value based on the type.
+
+        Parameters:
+            parameter_value (ParameterValue): Parameter value.
+            value (str|int|float|bool|list[str|int|float|bool]): Value to set.
+
+        Returns:
+            ParameterValue: Parameter value.
+            
+        Raises:
+            ValueError: If the parameter type is not recognized
+        """
+
+        if parameter_value.type == rcl_msg.ParameterType.PARAMETER_STRING:
+            parameter_value.string_value = str(value)
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_INTEGER:
+            parameter_value.integer_value = int(value)
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_DOUBLE:
+            parameter_value.double_value = float(value)
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_BOOL:
+            parameter_value.bool_value = bool(value)
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_STRING_ARRAY:
+            parameter_value.string_array_value = value
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_INTEGER_ARRAY:
+            parameter_value.integer_array_value = value
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_DOUBLE_ARRAY:
+            parameter_value.double_array_value = value
+            
+        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_BOOL_ARRAY:
+            parameter_value.bool_array_value = value
+        
+        else:
+            raise ValueError("Type " + str(parameter_value.type) + " not recognized.")
+
+        return parameter_value
 
 ###############################################################################
 # Main
 ###############################################################################
 
 def main():
-    rclpy.init()
+    if SIMULATION:
+        DEBUG_PORT = int(os.environ.get('CONFIGURATION_SERVER_DEBUG_PORT', 0))
+        
+        if DEBUG_PORT > 0:
+            debugpy.listen(
+                (
+                    'localhost',
+                    DEBUG_PORT
+                )
+            )
+            
+            print("Listening for debugger on port " + str(DEBUG_PORT))
+
+    rclpy.init(args=sys.argv)
 
     print("Starting ConfigurationServer node...")
     node = ConfigurationServer()
 
     try:
-        executor = rclpy.executors.MultiThreadedExecutor()
-        executor.add_node(node)
-        executor.spin()
-        # rclpy.spin(node)
+        rclpy.spin(node)
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException, rclpy.exceptions.ROSInterruptException):
         
         if rclpy.ok():

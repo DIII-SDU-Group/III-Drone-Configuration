@@ -635,7 +635,7 @@ class ParameterHandler:
         for key in old_keys:
             del dict_to_update[key]
 
-        self.params_dict[param_name] = param_dict
+        self.params_dict[param_name] = dict_to_update
         
         self.validate_param(
             param_name,

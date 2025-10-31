@@ -7,6 +7,7 @@
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 
 #include <memory>
+#include <string>
 
 using namespace iii_drone::configuration;
 
@@ -19,6 +20,7 @@ using namespace iii_drone::configuration;
 template <typename nodeT>
 Configurator<nodeT>::Configurator(
     nodeT *node,
+    const std::string & node_name,
     std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback
 ) : after_parameter_change_callback_(after_parameter_change_callback) {
 
@@ -26,29 +28,29 @@ Configurator<nodeT>::Configurator(
 
     node_ = node;
 
-    configurator_node_ = rclcpp::Node::make_shared(
-        "configurator",
-        node_->get_namespace()
+    std::string namespace_ = node_->get_namespace();
+
+    std::string _node_name = node_->get_name();
+
+    std::string config_node_name = _node_name + "_configurator";
+
+    configurator_node_ = std::make_shared<rclcpp::Node>(
+        config_node_name,
+        namespace_,
+        rclcpp::NodeOptions().use_intra_process_comms(true)
     );
 
-    service_client_callback_group_ = configurator_node_->create_callback_group(
-        rclcpp::CallbackGroupType::MutuallyExclusive
+    declare_parameters_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::DeclareParameters>(
+        "/configuration/configuration_server/declare_parameters",
+        rmw_qos_profile_services_default
     );
-
-    declare_parameter_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::DeclareParameter>(
-        "/configuration/configuration_server/declare_parameter",
-        rmw_qos_profile_services_default,
-        service_client_callback_group_
-    );
-    undeclare_parameter_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::UndeclareParameter>(
-        "/configuration/configuration_server/undeclare_parameter",
-        rmw_qos_profile_services_default,
-        service_client_callback_group_
+    undeclare_parameters_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::UndeclareParameters>(
+        "/configuration/configuration_server/undeclare_parameters",
+        rmw_qos_profile_services_default
     );
     get_parameters_client_ = configurator_node_->create_client<rcl_interfaces::srv::GetParameters>(
         "/configuration/configuration_server/configuration_server/get_parameters",
-        rmw_qos_profile_services_default,
-        service_client_callback_group_
+        rmw_qos_profile_services_default
     );
 
     parameter_events_subscriber_ = node_->template create_subscription<rcl_interfaces::msg::ParameterEvent>(
@@ -97,84 +99,6 @@ Configurator<nodeT>::Configurator(
 }
 
 template <typename nodeT>
-Configurator<nodeT>::Configurator(
-    nodeT *node,
-    const rclcpp::QoS &qos,
-    std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback
-) : after_parameter_change_callback_(after_parameter_change_callback) {
-
-    RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Initializing configurator");
-
-    node_ = node;
-
-    configurator_node_ = rclcpp::Node::make_shared(
-        "configurator",
-        node_->get_namespace()
-    );
-
-    qos_ = std::make_unique<rclcpp::QoS>(qos);
-
-    auto service_client_callback_group_ = configurator_node_->create_callback_group(
-        rclcpp::CallbackGroupType::MutuallyExclusive
-    );
-
-    declare_parameter_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::DeclareParameter>(
-        "/configuration/configuration_server/declare_parameter",
-        rmw_qos_profile_services_default,
-        service_client_callback_group_
-    );
-    undeclare_parameter_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::UndeclareParameter>(
-        "/configuration/configuration_server/undeclare_parameter",
-        rmw_qos_profile_services_default,
-        service_client_callback_group_
-    );
-    get_parameters_client_ = configurator_node_->create_client<rcl_interfaces::srv::GetParameters>(
-        "/configuration/configuration_server/configuration_server/get_parameters",
-        rmw_qos_profile_services_default,
-        service_client_callback_group_
-    );
-
-    parameter_events_subscriber_ = node_->template create_subscription<rcl_interfaces::msg::ParameterEvent>(
-        "/parameter_events",
-        *qos_,
-        std::bind(
-            &Configurator<nodeT>::parameterEventCallback, 
-            this, 
-            std::placeholders::_1
-        )
-    );
-
-    
-    if (!node_->has_parameter("node_parameters_path_postfix"))
-        node_->template declare_parameter<std::string>("node_parameters_path_postfix", "node_parameters/");
-
-    std::string config_base_dir = getenv("CONFIG_BASE_DIR");
-
-    if (config_base_dir.empty()) {
-        config_base_dir = std::string(getenv("HOME")) + "/.config";
-    }
-
-    std::string parameter_yaml_path = config_base_dir + node_->get_parameter("node_parameters_path_postfix").as_string();
-
-    if (parameter_yaml_path[0] == '~') {
-
-        parameter_yaml_path = std::string(getenv("HOME")) + parameter_yaml_path.substr(1);
-
-    }
-    
-    if (parameter_yaml_path.back() != '/') {
-
-        parameter_yaml_path += "/";
-
-    }
-
-    parameter_yaml_path += node_->get_name() + std::string(".yaml");
-
-    initialize(parameter_yaml_path);
-
-}
-
-template <typename nodeT>
 Configurator<nodeT>::~Configurator() { 
 
     if (rclcpp::ok()) RCLCPP_DEBUG(node_->get_logger(), "Configurator::~Configurator(): Destructing configurator");
@@ -182,36 +106,81 @@ Configurator<nodeT>::~Configurator() {
     parameter_events_subscriber_->clear_on_new_message_callback();
     parameter_events_subscriber_.reset();
 
+    std::vector<std::string> bundles_still_in_use;
+
     for (auto & parameter_bundle : parameter_bundles_) {
 
-        parameter_bundle.reset();
+        bool bundle_is_still_in_use = false;
+
+        if (parameter_bundle.use_count() > 1) {
+
+            bundles_still_in_use.push_back(parameter_bundle->name());
+
+            bundle_is_still_in_use = true;
+
+        }
+
+        if (!bundle_is_still_in_use)
+            parameter_bundle.reset();
 
     }
+    
+    if (bundles_still_in_use.size() > 0) {
+
+        std::string fatal_message = "Configurator::~Configurator(): Parameter bundles still in use: ";
+
+        for (auto & bundle_name : bundles_still_in_use) {
+
+            fatal_message += bundle_name + ", ";
+
+        }
+
+        RCLCPP_FATAL(
+            node_->get_logger(),
+            fatal_message.c_str()
+        );
+
+        throw std::runtime_error(fatal_message);
+
+    }
+
+    parameter_bundles_.clear();
 
     if (rclcpp::ok()) {
 
-        std::vector<std::string> parameter_names;
+        // std::vector<std::string> parameter_names;
 
-        {
+        // {
 
-            std::shared_lock<std::shared_mutex> lock(parameters_mutex_);
+        //     std::shared_lock<std::shared_mutex> lock(parameters_mutex_);
 
-            for (auto & parameter : parameters_) {
+        //     for (auto & parameter : parameters_) {
 
-                std::string parameter_name = parameter.get_name();
+        //         std::string parameter_name = parameter.get_name();
 
-                parameter_names.push_back(parameter_name);
+        //         parameter_names.push_back(parameter_name);
 
-            }
+        //     }
 
-        }
+        // }
 
-        for (auto & parameter_name : parameter_names) {
+        // bool skip_undeclare = false;
 
-            undeclareParameter(parameter_name);
+        // for (auto & parameter_name : parameter_names) {
 
-        }
+        //     skip_undeclare = !undeclareParameter(parameter_name, skip_undeclare);
+
+        // }
+
+        undeclareParameters();
+
     }
+
+    get_parameters_client_.reset();
+
+    undeclare_parameters_client_.reset();
+
+    declare_parameters_client_.reset();
 
     configurator_node_.reset();
 
@@ -387,55 +356,53 @@ void Configurator<nodeT>::SyncParameters(const std::vector<std::string> & simple
 }
 
 template <typename nodeT>
-template <typename T>
-std::string Configurator<nodeT>::GetParameterTypeString() {
+std::string Configurator<nodeT>::GetParameterTypeString(rclcpp::ParameterType parameter_type) {
 
-    if (std::is_same<T, bool>::value) {
+    switch (parameter_type) {
+        case rclcpp::ParameterType::PARAMETER_BOOL:
+            return "bool";
+        case rclcpp::ParameterType::PARAMETER_INTEGER:
+            return "int";
+        case rclcpp::ParameterType::PARAMETER_DOUBLE:
+            return "float";
+        case rclcpp::ParameterType::PARAMETER_STRING:
+            return "string";
+        case rclcpp::ParameterType::PARAMETER_BOOL_ARRAY:
+            return "bool_array";
+        case rclcpp::ParameterType::PARAMETER_INTEGER_ARRAY:
+            return "int_array";
+        case rclcpp::ParameterType::PARAMETER_DOUBLE_ARRAY:
+            return "float_array";
+        case rclcpp::ParameterType::PARAMETER_STRING_ARRAY:
+            return "string_array";
+        default:
+            std::string fatal_message = "Configurator::GetParameterTypeString(): Parameter type not supported.";
+            throw std::runtime_error(fatal_message);
+    }
+}
 
-        return "bool";
+template <typename nodeT>
+rclcpp::ParameterType Configurator<nodeT>::GetParameterTypeFromString(const std::string & parameter_type_string) {
 
-    } else if (std::is_same<T, int>::value) {
-
-        return "int";
-
-    } else if (std::is_same<T, float>::value) {
-
-        return "float";
-
-    } else if (std::is_same<T, double>::value) {
-
-        return "float";
-
-    } else if (std::is_same<T, std::string>::value) {
-
-        return "string";
-
-    } else if (std::is_same<T, std::vector<bool>>::value) {
-
-        return "bool_array";
-
-    } else if (std::is_same<T, std::vector<int>>::value) {
-
-        return "int_array";
-
-    } else if (std::is_same<T, std::vector<float>>::value) {
-
-        return "float_array";
-
-    } else if (std::is_same<T, std::vector<double>>::value) {
-
-        return "float_array";
-
-    } else if (std::is_same<T, std::vector<std::string>>::value) {
-
-        return "string_array";
-
+    if (parameter_type_string == "bool") {
+        return rclcpp::ParameterType::PARAMETER_BOOL;
+    } else if (parameter_type_string == "int") {
+        return rclcpp::ParameterType::PARAMETER_INTEGER;
+    } else if (parameter_type_string == "float") {
+        return rclcpp::ParameterType::PARAMETER_DOUBLE;
+    } else if (parameter_type_string == "string") {
+        return rclcpp::ParameterType::PARAMETER_STRING;
+    } else if (parameter_type_string == "bool_array") {
+        return rclcpp::ParameterType::PARAMETER_BOOL_ARRAY;
+    } else if (parameter_type_string == "int_array") {
+        return rclcpp::ParameterType::PARAMETER_INTEGER_ARRAY;
+    } else if (parameter_type_string == "float_array") {
+        return rclcpp::ParameterType::PARAMETER_DOUBLE_ARRAY;
+    } else if (parameter_type_string == "string_array") {
+        return rclcpp::ParameterType::PARAMETER_STRING_ARRAY;
     } else {
-
-        std::string fatal_message = "Configurator::GetParameterTypeString(): Parameter type not supported.";
-
+        std::string fatal_message = "Configurator::GetParameterTypeFromString(): Parameter type " + parameter_type_string + " not supported.";
         throw std::runtime_error(fatal_message);
-
     }
 
 }
@@ -486,6 +453,19 @@ void Configurator<nodeT>::PrintParameterBundles() const {
 template <typename nodeT>
 void Configurator<nodeT>::initialize(const std::string & parameter_yaml_path) {
 
+    if (initialized_) {
+
+        std::string fatal_message = "Configurator::initialize(): Already initialized.";
+
+        RCLCPP_FATAL(
+            node_->get_logger(),
+            fatal_message.c_str()
+        );
+
+        throw std::runtime_error(fatal_message);
+
+    }
+
     RCLCPP_DEBUG(node_->get_logger(), "Configurator::initialize(): Declaring parameters from %s", parameter_yaml_path.c_str());
 
     // Load parameters from YAML file:
@@ -505,83 +485,45 @@ void Configurator<nodeT>::initialize(const std::string & parameter_yaml_path) {
 
     }
 
+    initialized_ = true;
+
 }
 
 template <typename nodeT>
 void Configurator<nodeT>::initializeParameters(const YAML::Node & parameters) {
 
+    auto parameter_name_map_temp = std::map<std::string, std::string>();
+
+    std::vector<std::string> parameter_full_names;
+    std::vector<rclcpp::ParameterType> parameter_types;
+
     for (YAML::const_iterator it = parameters.begin(); it != parameters.end(); ++it) {
 
         std::string simple_name = it->first.as<std::string>();
-
-        // Check if simple name already in name map:
-        if (parameter_name_map_.find(simple_name) != parameter_name_map_.end()) {
-
-            RCLCPP_WARN(
-                node_->get_logger(),
-                "Configurator::initializeParameters(): Parameter %s already declared, skipping.",
-                simple_name.c_str()
-            );
-
-            continue;
-
-        }
 
         YAML::Node parameter = it->second;
 
         std::string name = parameter["name"].as<std::string>();
         std::string type = parameter["type"].as<std::string>();
 
-        if (type == "bool") {
+        rclcpp::ParameterType parameter_type = GetParameterTypeFromString(type);
 
-            declareParameter<bool>(name);
-
-        } else if (type == "int") {
-
-            declareParameter<int>(name);
-
-        } else if (type == "float") {
-
-            declareParameter<float>(name);
-
-        } else if (type == "string") {
-
-            declareParameter<std::string>(name);
-
-        } else if (type == "bool_array") {
-
-            declareParameter<std::vector<bool>>(name);
-
-        } else if (type == "int_array") {
-
-            declareParameter<std::vector<int>>(name);
-
-        } else if (type == "float_array") {
-
-            declareParameter<std::vector<float>>(name);
-
-        } else if (type == "string_array") {
-
-            declareParameter<std::vector<std::string>>(name);
-
-        } else {
-
-            std::string fatal_message = "Configurator::declareParameters(): Parameter type " + type + " not supported.";
-
-            RCLCPP_FATAL(
-                node_->get_logger(),
-                fatal_message.c_str()
-            );
-
-            throw std::runtime_error(fatal_message);
-
-        }
+        parameter_full_names.push_back(name);
+        parameter_types.push_back(parameter_type);
 
         std::pair<std::string, std::string> parameter_name_map_entry(simple_name, name);
 
-        parameter_name_map_.insert(parameter_name_map_entry);
+        parameter_name_map_temp.insert(parameter_name_map_entry);
 
     }
+
+    declareParameters(
+        parameter_full_names,
+        parameter_types
+    );
+
+    parameter_name_map_ = parameter_name_map_temp;
+
 }
 
 template <typename nodeT>
@@ -627,43 +569,35 @@ void Configurator<nodeT>::initializeParameterBundles(const YAML::Node & paramete
 }
 
 template <typename nodeT>
-template <typename T>
-void Configurator<nodeT>::declareParameter(const std::string & parameter_full_name) {
+void Configurator<nodeT>::declareParameters(
+    const std::vector<std::string> & parameter_full_names,
+    const std::vector<rclcpp::ParameterType> & parameter_types
+) {
 
-    RCLCPP_DEBUG(node_->get_logger(), "Configurator::DeclareParameter(): Declaring parameter %s", parameter_full_name.c_str());
-
-    {
-
-        std::shared_lock<std::shared_mutex> shared_lock(parameters_mutex_);
-
-        // Check if parameter is already declared:
-        for (auto & p : parameters_) {
-
-            if (p.get_name() == parameter_full_name) {
-
-                RCLCPP_WARN(
-                    node_->get_logger(),
-                    "Configurator::DeclareParameter(): Parameter %s already declared.",
-                    parameter_full_name.c_str()
-                );
-
-                return;
-
-            }
-        }
-    }
+    RCLCPP_DEBUG(node_->get_logger(), "Configurator::DeclareParameter(): Declaring parameters");
 
     // Send DeclareParameter request:
     std::string message;
 
-    if (!sendDeclareParameterRequest(
-            parameter_full_name,
-            GetParameterTypeString<T>(),
+    std::vector<std::string> types;
+
+    for (auto & parameter_type : parameter_types) {
+
+        types.push_back(GetParameterTypeString(parameter_type));
+
+    }
+
+    std::vector<rclcpp::Parameter> parameters;
+
+    if (!sendDeclareParametersRequest(
+            parameter_full_names,
+            types,
+            parameters,
             message
         )
     ) {
 
-        std::string fatal_message = "Configurator::DeclareParameter(): Failed to declare parameter " + parameter_full_name + " with error message " + message + ".";
+        std::string fatal_message = "Configurator::DeclareParameter(): Failed to declare parameters with error message: " + message;
 
         RCLCPP_FATAL(
             node_->get_logger(),
@@ -674,52 +608,23 @@ void Configurator<nodeT>::declareParameter(const std::string & parameter_full_na
 
     }
 
-    // Get parameter value:
-    rclcpp::Parameter parameter;
-
-    if (!sendGetParameterRequest(
-            parameter_full_name,
-            parameter
-        )
-    ) {
-
-        std::string fatal_message = "Configurator::DeclareParameter(): Failed to get parameter " + parameter_full_name + ".";
-
-        RCLCPP_FATAL(
-            node_->get_logger(),
-            fatal_message.c_str()
-        );
-
-        throw std::runtime_error(fatal_message);
-
-    }
-
-
-
-    // Add parameter to the list of parameters:
+    // Add parameters to the list of parameters:
     std::unique_lock<std::shared_mutex> unique_lock(parameters_mutex_);
-    parameters_.push_back(parameter);
+    
+    for (auto & parameter : parameters) {
 
+        parameters_.push_back(parameter);
 
-    // lock.unlock();
+    }
 
 }
 
 template <typename nodeT>
-void Configurator<nodeT>::undeclareParameter(const std::string & parameter_full_name) {
+bool Configurator<nodeT>::undeclareParameters(bool skip_server_undeclare) {
 
-    RCLCPP_DEBUG(node_->get_logger(), "Configurator::UndeclareParameter(): Undeclaring parameter %s", parameter_full_name.c_str());
+    if (parameter_bundles_.size() > 0) {
 
-    // Send UndeclareParameter request:
-    std::string message;
-
-    if (!sendUndeclareParameterRequest(
-            parameter_full_name,
-            message
-        )
-    ) {
-
-        std::string fatal_message = "Configurator::UndeclareParameter(): Failed to undeclare parameter " + parameter_full_name + " with error message " + message + ".";
+        std::string fatal_message = "Configurator::UndeclareParameters(): Cannot undeclare parameters while parameter bundles are still active.";
 
         RCLCPP_FATAL(
             node_->get_logger(),
@@ -727,27 +632,59 @@ void Configurator<nodeT>::undeclareParameter(const std::string & parameter_full_
         );
 
         throw std::runtime_error(fatal_message);
+
+    }
+
+    RCLCPP_DEBUG(node_->get_logger(), "Configurator::UndeclareParameters(): Undeclaring parameters");
+
+    // Send UndeclareParameters request:
+    std::string message;
+
+    bool undeclare_success = true;
+
+    if (!skip_server_undeclare) {
+
+        if (!sendUndeclareParametersRequest(message)) {
+
+            std::string warn_message = "Configurator::UndeclareParameters(): Failed to undeclare parameters with error message " + message;
+
+            RCLCPP_WARN(
+                node_->get_logger(),
+                warn_message.c_str()
+            );
+
+            undeclare_success = false;
+
+        }
+
+    } else {
+
+        undeclare_success = false;
 
     }
 
     std::unique_lock<std::shared_mutex> lock(parameters_mutex_);
 
-    // Remove parameter from the list of parameters:
-    for (unsigned int i = 0; i < parameters_.size(); i++) {
+    // Clear list of parameters:
+    // for (unsigned int i = 0; i < parameters_.size(); i++) {
 
-        if (parameters_[i].get_name() == parameter_full_name) {
+    //     if (parameters_[i].get_name() == parameter_full_name) {
 
-            RCLCPP_DEBUG(node_->get_logger(), "Configurator::UndeclareParameter(): Removing parameter %s", parameter_full_name.c_str());
+    //         RCLCPP_DEBUG(node_->get_logger(), "Configurator::UndeclareParameter(): Removing parameter %s", parameter_full_name.c_str());
 
-            parameters_.erase(parameters_.begin() + i);
+    //         parameters_.erase(parameters_.begin() + i);
 
-            break;
+    //         break;
 
-        }
+    //     }
 
-    }
+    // }
 
-    RCLCPP_DEBUG(node_->get_logger(), "Configurator::UndeclareParameter(): Parameter %s undeclared", parameter_full_name.c_str());
+    parameters_.clear();
+
+    RCLCPP_DEBUG(node_->get_logger(), "Configurator::UndeclareParameter(): Parameters undeclared");
+
+    return undeclare_success;
 
 }
 
@@ -859,21 +796,22 @@ void Configurator<nodeT>::parameterEventCallback(rcl_interfaces::msg::ParameterE
 }
 
 template <typename nodeT>
-bool Configurator<nodeT>::sendDeclareParameterRequest(
-    const std::string & parameter_full_name,
-    const std::string & type,
-    std::string & message
+bool Configurator<nodeT>::sendDeclareParametersRequest(
+        const std::vector<std::string> & names,
+        const std::vector<std::string> & types,
+        std::vector<rclcpp::Parameter> & parameters,
+        std::string & message
 ) {
 
     // Call DeclareParameter service:
-    auto request = std::make_shared<iii_drone_interfaces::srv::DeclareParameter::Request>();
+    auto request = std::make_shared<iii_drone_interfaces::srv::DeclareParameters::Request>();
 
-    request->name = parameter_full_name;
-    request->type = type;
+    request->names = names;
+    request->types = types;
     request->node_name = node_->get_name();
 
     // Wait for service:
-    if (!declare_parameter_client_->wait_for_service(std::chrono::seconds(5))) {
+    if (!declare_parameters_client_->wait_for_service(std::chrono::seconds(5))) {
 
         std::string fatal_message = "Configurator::DeclareParameter(): Service DeclareParameter not available after 5 seconds.";
 
@@ -886,7 +824,7 @@ bool Configurator<nodeT>::sendDeclareParameterRequest(
 
     }
 
-    if (!declare_parameter_client_->service_is_ready()) {
+    if (!declare_parameters_client_->service_is_ready()) {
 
         std::string fatal_message = "Configurator::DeclareParameter(): Service DeclareParameter not available.";
 
@@ -900,7 +838,7 @@ bool Configurator<nodeT>::sendDeclareParameterRequest(
     }
 
     // Call service:
-    auto future = declare_parameter_client_->async_send_request(request);
+    auto future = declare_parameters_client_->async_send_request(request);
 
     if(rclcpp::spin_until_future_complete(
         configurator_node_->get_node_base_interface(), 
@@ -918,40 +856,70 @@ bool Configurator<nodeT>::sendDeclareParameterRequest(
 
     auto result = future.get();
 
-    return result->succeeded;
+    message = result->message;
+
+    if (result->values.size() != names.size() && result->succeeded) {
+
+        std::string fatal_msg = "Configurator::sendDeclareParameterRequest(): Service DeclareParameter failed, received parameter values not same amount as requested declared.";
+
+        RCLCPP_FATAL(
+            node_->get_logger(),
+            fatal_msg.c_str()
+        );
+
+        throw std::runtime_error(fatal_msg);
+
+    }
+
+    parameters.clear();
+
+    if (!result->succeeded) {
+
+        return false;
+
+    }
+
+    for (int i = 0; i < result->values.size(); i++) {
+
+        parameters.push_back(rclcpp::Parameter(
+            names[i],
+            rclcpp::ParameterValue(result->values[i])
+        ));
+
+    }
+
+    return true;
 
 }
 
 template <typename nodeT>
-bool Configurator<nodeT>::sendUndeclareParameterRequest(
-    const std::string & parameter_full_name,
-    std::string & message
-) {
+bool Configurator<nodeT>::sendUndeclareParametersRequest(std::string & message) {
 
     // Call UndeclareParameter service:
-    auto request = std::make_shared<iii_drone_interfaces::srv::UndeclareParameter::Request>();
+    auto request = std::make_shared<iii_drone_interfaces::srv::UndeclareParameters::Request>();
 
-    request->name = parameter_full_name;
     request->node_name = node_->get_name();
 
     // Wait for service:
-    if (!undeclare_parameter_client_->wait_for_service(std::chrono::seconds(5))) {
+    if (!undeclare_parameters_client_->wait_for_service(std::chrono::seconds(5))) {
 
-        std::string fatal_message = "Configurator::UndeclareParameter(): Service UndeclareParameter not available after 5 seconds.";
+        std::string warn_message = "Configurator::sendUndeclareParametersRequest(): Service UndeclareParameters not available after 5 seconds.";
 
-        RCLCPP_FATAL(
+        RCLCPP_WARN(
             node_->get_logger(),
-            fatal_message.c_str()
+            warn_message.c_str()
         );
 
-        throw std::runtime_error(fatal_message);
+        message = warn_message;
+
+        return false;
 
     }
 
 
-    if (!undeclare_parameter_client_->service_is_ready()) {
+    if (!undeclare_parameters_client_->service_is_ready()) {
 
-        std::string fatal_message = "Configurator::UndeclareParameter(): Service UndeclareParameter not available.";
+        std::string fatal_message = "Configurator::sendUndeclareParametersRequest(): Service UndeclareParameters not available.";
 
         RCLCPP_FATAL(
             node_->get_logger(),
@@ -963,7 +931,7 @@ bool Configurator<nodeT>::sendUndeclareParameterRequest(
     }
 
     // Call service:
-    auto future = undeclare_parameter_client_->async_send_request(request);
+    auto future = undeclare_parameters_client_->async_send_request(request);
 
     if(rclcpp::spin_until_future_complete(
         configurator_node_->get_node_base_interface(), 
@@ -972,10 +940,10 @@ bool Configurator<nodeT>::sendUndeclareParameterRequest(
 
         RCLCPP_FATAL(
             node_->get_logger(),
-            "Configurator::sendUndeclareParameterRequest(): Service UndeclareParameter timed out."
+            "Configurator::sendUndeclareParametersRequest(): Service UndeclareParameters timed out."
         );
 
-        throw std::runtime_error("Failed to call service UndeclareParameter.");
+        throw std::runtime_error("Failed to call service UndeclareParameters.");
 
     }
 
@@ -983,14 +951,16 @@ bool Configurator<nodeT>::sendUndeclareParameterRequest(
 
         RCLCPP_FATAL(
             node_->get_logger(),
-            "Configurator::sendUndeclareParameterRequest(): Service UndeclareParameter failed."
+            "Configurator::sendUndeclareParametersRequest(): Service UndeclareParameters failed."
         );
 
-        throw std::runtime_error("Failed to call service UndeclareParameter.");
+        throw std::runtime_error("Failed to call service UndeclareParameters.");
 
     }
 
     auto result = future.get();
+
+    message = result->message;
 
     return result->succeeded;
 
