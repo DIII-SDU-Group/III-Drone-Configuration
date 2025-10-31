@@ -1,6 +1,26 @@
 /**:
   ros__parameters:
-    parameters_dir: "~/.config/iii_drone/parameters/"
-    node_parameters_dir: "~/.config/iii_drone/node_parameters/"
-    default_parameter_file: "parameters.yaml"
+    parameters_path_postfix: "parameters/"
+    node_parameters_path_postfix: "node_parameters/"
+    default_parameter_file: "parameters_real.yaml"
+    sim_parameter_file: "parameters_sim.yaml"
     use_sim_time: true
+
+sensor:
+  cable_camera:
+    usb_cam:
+      ros__parameters:
+        video_device: "/dev/video0"
+        framerate: 10.0
+        io_method: "mmap"
+        frame_id: "camera"
+        pixel_format: "yuyv"
+        image_width: 640
+        image_height: 480
+        camera_name: "test_camera"
+        camera_info_url: "package://usb_cam/config/camera_info.yaml"
+
+supervision:
+  supervisor:
+    ros__parameters:
+      monitor_node_states: false

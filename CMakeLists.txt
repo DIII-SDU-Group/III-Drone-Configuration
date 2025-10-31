@@ -31,6 +31,7 @@ link_directories(src/matlab_MPC_5Hz_hp10)
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(iii_drone_interfaces REQUIRED)
@@ -91,6 +92,7 @@ target_link_libraries(iii_drone_configuration_lib
 
 ament_target_dependencies(iii_drone_configuration_lib
   rclcpp
+  rclcpp_lifecycle
   iii_drone_interfaces
 )
 
@@ -110,10 +112,11 @@ install(TARGETS iii_drone_configuration_lib
 # Install Python modules
 ament_python_install_package(${PROJECT_NAME})
 # Install Python executables
-install(PROGRAMS
-  "${PROJECT_SOURCE_DIR}/scripts/configuration_server_node/configuration_server_node.py"
-  DESTINATION lib/${PROJECT_NAME}
-)
+# install(PROGRAMS
+#   "${PROJECT_SOURCE_DIR}/scripts/configuration_server_node/configuration_server_node.py"
+#   "${PROJECT_SOURCE_DIR}/scripts/configuration_client_node/configuration_client_node.py"
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 
 # Export information to downstream packages
 if(ROS_DISTRO IN_LIST ROS_DISTROS)
@@ -129,3 +132,13 @@ install(DIRECTORY
 )
 
 ament_package()
+
+set(python_programs
+  "${PROJECT_NAME}/configuration_server_node.py"
+  "${PROJECT_NAME}/configuration_client_node.py"
+)
+
+install(
+  PROGRAMS ${python_programs}
+  DESTINATION lib/${PROJECT_NAME}
+)

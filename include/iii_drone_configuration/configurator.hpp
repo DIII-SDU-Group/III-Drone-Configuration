@@ -12,7 +12,8 @@
 /*****************************************************************************/
 // III-Drone-Interfaces:
 
-#include <iii_drone_interfaces/srv/declare_parameter.hpp>
+#include <iii_drone_interfaces/srv/declare_parameters.hpp>
+#include <iii_drone_interfaces/srv/undeclare_parameters.hpp>
 
 /*****************************************************************************/
 // ROS2:
@@ -52,32 +53,23 @@ namespace configuration {
  * The class declares a ROS2 parameter, node_parameters_dir. Here, it looks for the file with the same name
  * as the node. If the file doesn't exist, it will fail.
 */
+template <typename nodeT>
 class Configurator {
 public:
     /**
      * @brief Constructor
      *
      * @param node Reference to the handling node
+     * @param node_name Name of the node
      * @param after_parameter_change_callback Callback function called after successful parameter change, default is nullptr
      */
     Configurator(
-        rclcpp::Node *node,
+        nodeT *node,
+        const std::string & node_name,
         std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback = nullptr
     );
 
-    /**
-     * @brief Constructor
-     *
-     * @param node Reference to the handling node
-     * @param qos Quality of service for the parameter event subscription
-     * @param after_parameter_change_callback Callback function called after successful parameter change, default is nullptr
-     */
-    Configurator(
-        rclcpp::Node *node,
-        const rclcpp::QoS &qos,
-        std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback = nullptr
-    );
-
+ 
     /*
     * @brief Destructor
     */
@@ -124,12 +116,13 @@ public:
     /**
      * @brief Static function for getting string representation of a parameter type from template type.
      * 
-     * @tparam T Type of the parameter
+     * @param parameter_type Type of the parameter
      * 
      * @return String representation of the parameter type
      */
-    template<typename T>
-    static std::string GetParameterTypeString();
+    static std::string GetParameterTypeString(rclcpp::ParameterType parameter_type);
+
+    static rclcpp::ParameterType GetParameterTypeFromString(const std::string & parameter_type);
 
     /**
      * @brief Prints all parameters to the console.
@@ -154,7 +147,12 @@ private:
     /*
     * @brief Reference to the handling node.
     */
-    rclcpp::Node *node_;
+    nodeT *node_;
+
+    /**
+     * @brief Configurator node.
+     */
+    rclcpp::Node::SharedPtr configurator_node_;
 
     /**
      * @brief Parameter bundles.
@@ -169,6 +167,8 @@ private:
      * @return void
      */
     void initialize(const std::string & parameter_yaml_path);
+
+    bool initialized_ = false;
 
     /**
      * @brief Initializes the parameters.
@@ -189,16 +189,27 @@ private:
     void initializeParameterBundles(const YAML::Node & parameter_bundles);
 
     /*
-    * @brief Adds a parameter to the node.
+    * @brief Adds parameters to the node.
     *
-    * @param parameter_full_name Name of the parameter
+    * @param parameter_full_names Names of the parameter
     * 
-    * @tparam T Type of the parameter
+    * @param parameter_types Types of the parameter
     * 
     * @return void
     */
-    template<typename T>
-    void declareParameter(const std::string & parameter_full_name);
+    void declareParameters(
+        const std::vector<std::string> & parameter_full_names,
+        const std::vector<rclcpp::ParameterType> & parameter_types
+    );
+
+    /**
+     * @brief Undeclares parameters from the node.
+     * 
+     * @param skip_server_undeclare If true, will only remove parameters internally and not undeclare them from the server
+     * 
+     * @return bool
+     */
+    bool undeclareParameters(bool skip_server_undeclare = false);
 
     /**
      * @brief Gets the full name of a parameter.
@@ -241,7 +252,12 @@ private:
     /**
      * @brief DeclareParameter service client.
      */
-    rclcpp::Client<iii_drone_interfaces::srv::DeclareParameter>::SharedPtr declare_parameter_client_;
+    rclcpp::Client<iii_drone_interfaces::srv::DeclareParameters>::SharedPtr declare_parameters_client_;
+
+    /**
+     * @brief UndeclareParameter service client.
+     */
+    rclcpp::Client<iii_drone_interfaces::srv::UndeclareParameters>::SharedPtr undeclare_parameters_client_;
 
     /**
      * @brief GetParameters service client.
@@ -268,19 +284,31 @@ private:
     std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback_;
 
     /**
-     * @brief Sends a DeclareParameter request to the ConfigurationServer node,
-     *       which will declare the parameter in the parameter server.
+     * @brief Sends a DeclareParameters request to the ConfigurationServer node,
+     *       which will declare the parameters in the parameter server.
      * 
-     * @param name Name of the parameter
-     * @param type Type string representation of the parameter
+     * @param names Names of the parameter
+     * @param type Type string representations of the parameters
+     * @param parameters Parameter object out reference
+     * @param message Message out reference
      * 
-     * @return bool True if the parameter was declared successfully, false otherwise
+     * @return bool True if the parameters were declared successfully, false otherwise
      */
-    bool sendDeclareParameterRequest(
-        const std::string & name,
-        const std::string & type,
+    bool sendDeclareParametersRequest(
+        const std::vector<std::string> & names,
+        const std::vector<std::string> & types,
+        std::vector<rclcpp::Parameter> & parameters,
         std::string & message
     );
+
+    /**
+     * @brief Sends an UndeclareParameters request to the ConfigurationServer node,
+     * 
+     * @param message Message out reference
+     * 
+     * @return bool True if the parameters were undeclared successfully, false otherwise
+     */
+    bool sendUndeclareParametersRequest(std::string & message);
 
     /**
      * @brief Sends a GetParameters request to the ConfigurationServer node,

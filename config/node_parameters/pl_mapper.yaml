@@ -1,6 +1,6 @@
 parameters:
-  pl_mapper_begin_running:
-    name: "/perception/pl_mapper/pl_mapper_begin_running"
+  begin_running:
+    name: "/perception/begin_running"
     type: "bool"
   kf_r:
     name: "/perception/pl_mapper/kf_r"
@@ -38,23 +38,20 @@ parameters:
   matching_line_max_dist:
     name: "/perception/pl_mapper/matching_line_max_dist"
     type: "float"
-  init_sleep_time_ms:
-    name: "/perception/pl_mapper/init_sleep_time_ms"
-    type: "int"
   predict_callback_period_ms:
     name: "/perception/pl_mapper/predict_callback_period_ms"
     type: "int"
   max_lines:
     name: "/perception/pl_mapper/max_lines"
     type: "int"
+  use_inter_line_positions:
+    name: "/perception/pl_mapper/use_inter_line_positions"
+    type: "bool"
   inter_pos_window_size:
     name: "/perception/pl_mapper/inter_pos_window_size"
     type: "int"
   overwrite_non_FOV_line_positions_from_inter_pos:
     name: "/perception/pl_mapper/overwrite_non_FOV_line_positions_from_inter_pos"
-    type: "bool"
-  simulation:
-    name: "/global/simulation"
     type: "bool"
   drone_frame_id:
     name: "/tf/drone_frame_id"
@@ -121,7 +118,4 @@ parameter_bundles:
       update: false
     mmwave_frame_id:
       remap_name: "mmwave_frame_id"
-      update: false
-    simulation:
-      remap_name: "simulation"
       update: false

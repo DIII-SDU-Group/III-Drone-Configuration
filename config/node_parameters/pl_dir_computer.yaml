@@ -1,13 +1,13 @@
 parameters:
+  begin_running:
+    name: "/perception/begin_running"
+    type: "bool"
   kf_r:
     name: "/perception/pl_dir_computer/kf_r"
     type: "float"
   kf_q:
     name: "/perception/pl_dir_computer/kf_q"
     type: "float"
-  init_sleep_time_ms:
-    name: "/perception/pl_dir_computer/init_sleep_time_ms"
-    type: "int"
   odometry_callback_period_ms:
     name: "/perception/pl_dir_computer/odometry_callback_period_ms"
     type: "int"
