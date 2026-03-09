@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <exception>
 
 using namespace iii_drone::configuration;
 
@@ -23,6 +24,7 @@ Configurator<nodeT>::Configurator(
     const std::string & node_name,
     std::function<void(const rclcpp::Parameter &)> after_parameter_change_callback
 ) : after_parameter_change_callback_(after_parameter_change_callback) {
+    (void)node_name;
 
     RCLCPP_DEBUG(node->get_logger(), "Configurator::Configurator(): Initializing configurator");
 
@@ -42,15 +44,15 @@ Configurator<nodeT>::Configurator(
 
     declare_parameters_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::DeclareParameters>(
         "/configuration/configuration_server/declare_parameters",
-        rmw_qos_profile_services_default
+        rclcpp::ServicesQoS()
     );
     undeclare_parameters_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::UndeclareParameters>(
         "/configuration/configuration_server/undeclare_parameters",
-        rmw_qos_profile_services_default
+        rclcpp::ServicesQoS()
     );
     get_parameters_client_ = configurator_node_->create_client<rcl_interfaces::srv::GetParameters>(
         "/configuration/configuration_server/configuration_server/get_parameters",
-        rmw_qos_profile_services_default
+        rclcpp::ServicesQoS()
     );
 
     parameter_events_subscriber_ = node_->template create_subscription<rcl_interfaces::msg::ParameterEvent>(
@@ -140,7 +142,8 @@ Configurator<nodeT>::~Configurator() {
             fatal_message.c_str()
         );
 
-        throw std::runtime_error(fatal_message);
+        // Avoid throwing from destructor (it is noexcept by default).
+        std::terminate();
 
     }
 
@@ -879,7 +882,7 @@ bool Configurator<nodeT>::sendDeclareParametersRequest(
 
     }
 
-    for (int i = 0; i < result->values.size(); i++) {
+    for (size_t i = 0; i < result->values.size(); i++) {
 
         parameters.push_back(rclcpp::Parameter(
             names[i],
@@ -1079,5 +1082,5 @@ bool Configurator<nodeT>::sendGetParametersRequest(
 // /*****************************************************************************/
 
 // Template class:
-template class Configurator<rclcpp::Node>;
-template class Configurator<rclcpp_lifecycle::LifecycleNode>;
+template class iii_drone::configuration::Configurator<rclcpp::Node>;
+template class iii_drone::configuration::Configurator<rclcpp_lifecycle::LifecycleNode>;

@@ -37,20 +37,29 @@ find_package(builtin_interfaces REQUIRED)
 find_package(iii_drone_interfaces REQUIRED)
 
 # Yaml cpp
-include(FetchContent)
+# Prefer system package to avoid building vendored yaml-cpp and its deprecation warnings.
+find_package(yaml-cpp QUIET CONFIG)
+if(NOT yaml-cpp_FOUND)
+  include(FetchContent)
+  FetchContent_Declare(
+    yaml_cpp
+    GIT_REPOSITORY https://github.com/DIII-SDU-Group/yaml-cpp.git
+    GIT_TAG        0.8.0
+  )
 
-FetchContent_Declare(
-  yaml_cpp
-  GIT_REPOSITORY https://github.com/DIII-SDU-Group/yaml-cpp.git
-  GIT_TAG        0.8.0
-)
+  FetchContent_GetProperties(yaml_cpp)
 
-FetchContent_GetProperties(yaml_cpp)
-
-if(NOT yaml_cpp_POPULATED)
-  message(STATUS "Fetching yaml-cpp...")
-  FetchContent_Populate(yaml_cpp)
-  add_subdirectory(${yaml_cpp_SOURCE_DIR} ${yaml_cpp_BINARY_DIR})
+  if(NOT yaml_cpp_POPULATED)
+    message(STATUS "Fetching yaml-cpp...")
+    FetchContent_Populate(yaml_cpp)
+    set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests" FORCE)
+    set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "Disable yaml-cpp tools" FORCE)
+    set(YAML_BUILD_SHARED_LIBS ON CACHE BOOL "Build shared yaml-cpp library" FORCE)
+    set(_old_cmake_warn_deprecated ${CMAKE_WARN_DEPRECATED})
+    set(CMAKE_WARN_DEPRECATED OFF)
+    add_subdirectory(${yaml_cpp_SOURCE_DIR} ${yaml_cpp_BINARY_DIR})
+    set(CMAKE_WARN_DEPRECATED ${_old_cmake_warn_deprecated})
+  endif()
 endif()
 
 # Library files:
