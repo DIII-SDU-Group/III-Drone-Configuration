@@ -20,7 +20,8 @@ import rcl_interfaces
 from rcl_interfaces.srv import GetParameters
 
 from typing import Any, Callable, Dict, List, Optional
-from threading import Lock
+from threading import Event, Lock, Thread
+import time
 import yaml
 import os
 
@@ -41,6 +42,15 @@ class Configurator:
             'configurator_node',
             namespace=self.node.get_namespace()
         )
+        self._configurator_executor = rclpy.executors.SingleThreadedExecutor()
+        self._configurator_executor.add_node(self.configurator_node)
+        self._configurator_executor_stop_event = Event()
+        self._configurator_executor_thread = Thread(
+            target=self._spin_configurator_node,
+            name=f"{self.node.get_name()}_configurator_executor",
+            daemon=True
+        )
+        self._configurator_executor_thread.start()
         
         self.after_parameter_change_callback = after_parameter_change_callback
         self.qos = qos
@@ -98,6 +108,39 @@ class Configurator:
 
         self.is_cleaned_up = False
 
+    def _wait_for_future(
+        self,
+        future,
+        timeout_sec: Optional[float] = 5.0
+    ) -> None:
+        """
+            Wait for a service future to complete.
+            The configurator node is serviced by its own executor thread.
+        """
+        if future.done():
+            return
+
+        done_event = Event()
+        future.add_done_callback(lambda _: done_event.set())
+
+        deadline = None if timeout_sec is None else (time.monotonic() + timeout_sec)
+
+        while rclpy.ok() and not future.done():
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    break
+                done_event.wait(timeout=min(0.05, remaining))
+            else:
+                done_event.wait(timeout=0.05)
+
+        if not future.done():
+            raise TimeoutError("Timed out waiting for service response")
+
+    def _spin_configurator_node(self) -> None:
+        while (not self._configurator_executor_stop_event.is_set()) and rclpy.ok():
+            self._configurator_executor.spin_once(timeout_sec=0.1)
+
     # Destructor
     def cleanup(self):
         if self.is_cleaned_up:
@@ -105,9 +148,13 @@ class Configurator:
         
         if rclpy.ok():
             self.node.get_logger().debug("Configurator.cleanup")
+
+        self._configurator_executor_stop_event.set()
+        if self._configurator_executor_thread.is_alive():
+            self._configurator_executor_thread.join(timeout=1.0)
         
         # self.parameter_events_subscriber.destroy()
-        self.node.destroy_publisher(self.parameter_events_subscriber)
+        self.node.destroy_subscription(self.parameter_events_subscriber)
         self.parameter_events_subscriber = None
         
         self.parameter_bundles.clear()
@@ -123,7 +170,11 @@ class Configurator:
         self.undeclare_parameters_client = None
         self.configurator_node.destroy_client(self.get_parameters_client)
         self.get_parameters_client = None
-        
+
+        self._configurator_executor.remove_node(self.configurator_node)
+        self._configurator_executor.shutdown(timeout_sec=1.0)
+        self._configurator_executor = None
+
         self.configurator_node.destroy_node()
         self.configurator_node = None
         
@@ -500,8 +551,7 @@ class Configurator:
             raise RuntimeError(fatal_msg)
         
         future = self.declare_parameters_client.call_async(request)
-        
-        rclpy.spin_until_future_complete(self.configurator_node, future)
+        self._wait_for_future(future, timeout_sec=5.0)
         
         result: DeclareParameters.Response = future.result()
 
@@ -553,8 +603,7 @@ class Configurator:
             raise RuntimeError(fatal_msg)
         
         future = self.undeclare_parameters_client.call_async(request)
-        
-        rclpy.spin_until_future_complete(self.configurator_node, future)
+        self._wait_for_future(future, timeout_sec=5.0)
         
         result: UndeclareParameters.Response = future.result()
         
@@ -602,8 +651,7 @@ class Configurator:
             raise RuntimeError(fatal_msg)
         
         future = self.get_parameters_client.call_async(request)
-        
-        rclpy.spin_until_future_complete(self.configurator_node, future)
+        self._wait_for_future(future, timeout_sec=5.0)
         
         result: GetParameters.Response = future.result()
         
