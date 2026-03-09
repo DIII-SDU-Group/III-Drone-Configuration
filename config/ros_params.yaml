@@ -24,3 +24,10 @@ supervision:
   supervisor:
     ros__parameters:
       monitor_node_states: false
+
+"/sensor/mmwave/mmwave":
+  ros__parameters:
+    cli_port: "/dev/mmWaveCli"
+    data_port: "/dev/mmWaveData"
+    cfg_path: "/home/iii/ws/src/iwr6843aop-ROS2-pkg/cfg_files/90deg_Group_18m_30Hz.cfg"
+    mmwave_frame_id: "mmwave"

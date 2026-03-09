@@ -106,20 +106,7 @@ perception:
     use_inter_line_positions:
       type: bool
       value: true
-sensor:
-  iwr6843_pcl_pub:
-    cli_port:
-      type: string
-      value: /dev/mmWaveCli
-      constant: true
-    data_port:
-      type: string
-      value: /dev/mmWaveData
-      constant: true
-    cfg_path:
-      type: string
-      value: /home/iii/ws/src/iwr6843aop-ROS2-pkg/cfg_files/90deg_Group_18m_30Hz.cfg
-      constant: true
+
 control:
   maneuver_controller:
     ground_estimate_window_size:
