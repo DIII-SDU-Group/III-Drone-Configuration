@@ -1,0 +1,39 @@
+control:
+  gains:
+    p:
+      type: float
+      value: 1.5
+      min: 0.0
+      max: 10.0
+    i:
+      type: float
+      value: 0.3
+      min: 0.0
+      max: /control/gains/p
+  mode:
+    type: string
+    value: auto
+    options:
+      - auto
+      - manual
+  enabled:
+    type: bool
+    value: true
+  immutable_name:
+    type: string
+    value: alpha
+    constant: true
+perception:
+  pl_mapper:
+    weights:
+      type: float_array
+      value:
+        - 1.0
+        - 2.5
+        - 3.5
+    ids:
+      type: int_array
+      value:
+        - 1
+        - 2
+        - 3

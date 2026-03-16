@@ -17,19 +17,16 @@ fi
 
 mkdir -p $target_config_dir/iii_drone/parameters/
 
-if [ ! -f $target_config_dir/iii_drone/parameters/parameters_real.yaml ]; then
-    cp $CONFIG_DIR/parameters/parameters_real.yaml $target_config_dir/iii_drone/parameters/parameters_real.yaml
-fi
-
-if [ ! -f $target_config_dir/iii_drone/parameters/parameters_sim.yaml ]; then
-    cp $CONFIG_DIR/parameters/parameters_sim.yaml $target_config_dir/iii_drone/parameters/parameters_sim.yaml
+if [ ! -f $target_config_dir/iii_drone/parameters/parameter_manifest.yaml ]; then
+    cp $CONFIG_DIR/parameters/parameter_manifest.yaml $target_config_dir/iii_drone/parameters/parameter_manifest.yaml
 fi
 
 $SCRIPT_DIR/update_installed_parameters.py $CONFIG_DIR/parameters/parameters.yaml $target_config_dir/iii_drone/parameters/
 
-if [ ! -f $target_config_dir/iii_drone/ros_params.yaml ]; then
-    cp -f $CONFIG_DIR/ros_params.yaml $target_config_dir/iii_drone/ros_params.yaml
+if [ ! -f $target_config_dir/iii_drone/ros_params_real.yaml ]; then
+    cp -f $CONFIG_DIR/ros_params_real.yaml $target_config_dir/iii_drone/ros_params_real.yaml
 fi
 
-rm -rf $target_config_dir/iii_drone/node_parameters 2> /dev/null
-cp -rf $CONFIG_DIR/node_parameters $target_config_dir/iii_drone/
+if [ ! -f $target_config_dir/iii_drone/ros_params_sim.yaml ]; then
+    cp -f $CONFIG_DIR/ros_params_sim.yaml $target_config_dir/iii_drone/ros_params_sim.yaml
+fi

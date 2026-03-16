@@ -1,7 +1,0 @@
-parameters:
-  drone_frame_id:
-    name: "/tf/drone_frame_id"
-    type: "string"
-  world_frame_id:
-    name: "/tf/world_frame_id"
-    type: "string"

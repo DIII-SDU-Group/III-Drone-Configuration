@@ -32,9 +32,27 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(rclpy REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(iii_drone_interfaces REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+
+find_package(pybind11 QUIET CONFIG)
+if(NOT pybind11_FOUND)
+  find_package(pybind11_vendor QUIET)
+  find_package(pybind11 QUIET CONFIG)
+endif()
+if(NOT pybind11_FOUND)
+  include(FetchContent)
+  FetchContent_Declare(
+    pybind11
+    GIT_REPOSITORY https://github.com/pybind/pybind11.git
+    GIT_TAG        v2.13.6
+  )
+  FetchContent_MakeAvailable(pybind11)
+endif()
 
 # Yaml cpp
 # Prefer system package to avoid building vendored yaml-cpp and its deprecation warnings.
@@ -65,12 +83,16 @@ endif()
 # Library files:
 set(III_DRONE_CONFIGURATION_LIBRARY_HEADERS
   "${PROJECT_SOURCE_DIR}/include/iii_drone_configuration/configurator.hpp"
-  "${PROJECT_SOURCE_DIR}/include/iii_drone_configuration/parameter_bundle.hpp"
+  "${PROJECT_SOURCE_DIR}/include/iii_drone_configuration/configuration.hpp"
+  "${PROJECT_SOURCE_DIR}/include/iii_drone_configuration/python_core.hpp"
+  "${PROJECT_SOURCE_DIR}/include/iii_drone_configuration/schema_validator.hpp"
 )
 
 set(III_DRONE_CONFIGURATION_LIBRARY_SOURCES
   "${PROJECT_SOURCE_DIR}/src/configurator.cpp"
-  "${PROJECT_SOURCE_DIR}/src/parameter_bundle.cpp"
+  "${PROJECT_SOURCE_DIR}/src/configuration.cpp"
+  "${PROJECT_SOURCE_DIR}/src/python_core.cpp"
+  "${PROJECT_SOURCE_DIR}/src/schema_validator.cpp"
 )
 
 include_directories(
@@ -96,23 +118,43 @@ target_include_directories(iii_drone_configuration_lib
 )
 
 target_link_libraries(iii_drone_configuration_lib
-  yaml-cpp::yaml-cpp
+  yaml-cpp
 )
 
 ament_target_dependencies(iii_drone_configuration_lib
   rclcpp
   rclcpp_lifecycle
+  rcl_interfaces
+  std_msgs
   iii_drone_interfaces
 )
 
 ament_export_libraries(iii_drone_configuration_lib)
 ament_export_include_directories(${III_DRONE_CONFIGURATION_INCLUDE_DIRS})
 
+pybind11_add_module(_native MODULE
+  "${PROJECT_SOURCE_DIR}/src/python_bindings.cpp"
+)
+set_target_properties(_native PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}"
+)
+target_link_libraries(_native
+  PRIVATE
+  iii_drone_configuration_lib
+)
+target_include_directories(_native
+  PRIVATE
+  ${III_DRONE_CONFIGURATION_INCLUDE_DIRS}
+)
+
 install(TARGETS iii_drone_configuration_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
   INCLUDES DESTINATION include
+)
+install(TARGETS _native
+  LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}"
 )
 
 ############
@@ -151,3 +193,98 @@ install(
   PROGRAMS ${python_programs}
   DESTINATION lib/${PROJECT_NAME}
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
+
+  set(III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE
+    "${PROJECT_SOURCE_DIR}/test/resources/test_parameter_manifest.yaml"
+  )
+  set(III_DRONE_CONFIGURATION_PRODUCTION_SCHEMA_FILE
+    "${PROJECT_SOURCE_DIR}/config/parameters/parameter_manifest.yaml"
+  )
+  set(III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_REAL_FILE
+    "${PROJECT_SOURCE_DIR}/config/ros_params_real.yaml"
+  )
+  set(III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_SIM_FILE
+    "${PROJECT_SOURCE_DIR}/config/ros_params_sim.yaml"
+  )
+
+  ament_add_gtest(test_schema_validator
+    "${PROJECT_SOURCE_DIR}/test/test_schema_validator.cpp"
+  )
+  target_link_libraries(test_schema_validator iii_drone_configuration_lib)
+  target_compile_definitions(test_schema_validator PRIVATE
+    TEST_SCHEMA_FILE="${III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE}"
+    PRODUCTION_SCHEMA_FILE="${III_DRONE_CONFIGURATION_PRODUCTION_SCHEMA_FILE}"
+    PRODUCTION_ROS_PARAMS_REAL_FILE="${III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_REAL_FILE}"
+    PRODUCTION_ROS_PARAMS_SIM_FILE="${III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_SIM_FILE}"
+  )
+  ament_target_dependencies(test_schema_validator rclcpp)
+
+  ament_add_gtest(test_configuration
+    "${PROJECT_SOURCE_DIR}/test/test_configuration.cpp"
+  )
+  target_link_libraries(test_configuration iii_drone_configuration_lib)
+  ament_target_dependencies(test_configuration rclcpp)
+
+  ament_add_gtest(test_configurator
+    "${PROJECT_SOURCE_DIR}/test/test_configurator.cpp"
+  )
+  target_link_libraries(test_configurator iii_drone_configuration_lib)
+  target_compile_definitions(test_configurator PRIVATE
+    TEST_SCHEMA_FILE="${III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE}"
+  )
+  ament_target_dependencies(test_configurator rclcpp rclcpp_lifecycle)
+
+  ament_add_gtest(test_python_core
+    "${PROJECT_SOURCE_DIR}/test/test_python_core.cpp"
+  )
+  target_link_libraries(test_python_core iii_drone_configuration_lib)
+  target_compile_definitions(test_python_core PRIVATE
+    TEST_SCHEMA_FILE="${III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE}"
+  )
+  ament_target_dependencies(test_python_core rclcpp)
+
+  add_executable(configurator_managed_test_node
+    "${PROJECT_SOURCE_DIR}/test/configurator_managed_test_node.cpp"
+  )
+  target_link_libraries(configurator_managed_test_node iii_drone_configuration_lib)
+  target_compile_definitions(configurator_managed_test_node PRIVATE
+    TEST_SCHEMA_FILE="${III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE}"
+  )
+  ament_target_dependencies(configurator_managed_test_node rclcpp rclcpp_lifecycle)
+
+  ament_add_pytest_test(
+    test_python_configuration
+    "${PROJECT_SOURCE_DIR}/test/test_python_configuration.py"
+    APPEND_ENV
+      PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+  )
+
+  ament_add_pytest_test(
+    test_python_parameter_handler
+    "${PROJECT_SOURCE_DIR}/test/test_parameter_handler.py"
+    APPEND_ENV
+      PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+    ENV
+      III_DRONE_PRODUCTION_SCHEMA_FILE=${III_DRONE_CONFIGURATION_PRODUCTION_SCHEMA_FILE}
+      III_DRONE_PRODUCTION_ROS_PARAMS_REAL_FILE=${III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_REAL_FILE}
+      III_DRONE_PRODUCTION_ROS_PARAMS_SIM_FILE=${III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_SIM_FILE}
+  )
+
+  ament_add_pytest_test(
+    test_python_configuration_server
+    "${PROJECT_SOURCE_DIR}/test/test_configuration_server.py"
+    APPEND_ENV
+      PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+  )
+
+  ament_add_pytest_test(
+    test_python_configuration_e2e
+    "${PROJECT_SOURCE_DIR}/test/test_configuration_e2e.py"
+    APPEND_ENV
+      PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+  )
+endif()

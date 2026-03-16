@@ -4,1444 +4,643 @@
 # Imports
 ###############################################################################
 
-import rclpy
-import rclpy.lifecycle
-import rclpy.parameter
-from rclpy.service import Service
-from rclpy.subscription import Subscription
-from rclpy.lifecycle import Node, State, TransitionCallbackReturn
-from rclpy.exceptions import ParameterNotDeclaredException
-import rcl_interfaces.msg as rcl_msg
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import os
-import sys
 import yaml
-from datetime import datetime
-from typing import Optional, Callable, List
-import time
-import threading
-import gc
 
-from iii_drone_interfaces.srv import DeclareParameters, UndeclareParameters, GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
+import rclpy
+from rclpy.lifecycle import Node, State, TransitionCallbackReturn
+from rclpy.service import Service
+from rclpy.callback_groups import ReentrantCallbackGroup
 
+from std_msgs.msg import String
+
+from rcl_interfaces.msg import Parameter as ParameterMsg
+from rcl_interfaces.msg import ParameterValue, SetParametersResult
+from rcl_interfaces.srv import GetParameters, ListParameters, SetParameters
+
+from iii_drone_interfaces.srv import (
+    DeclareParameters,
+    GetCurrentParameterFile,
+    GetDeclaredParameters,
+    GetParameterFiles,
+    GetParameterYaml,
+    LoadParameters,
+    SaveParameters,
+    SetCurrentParameterFileAsDefault,
+    SetParameterFromGC,
+    UndeclareParameters,
+)
 from iii_drone_configuration.parameter_handler import ParameterHandler
-import rclpy.subscription
+from iii_drone_configuration.schema_utils import resolve_iii_config_dir, resolve_schema_file, resolve_snapshot_dir
 
-#########################################################################
-# Debugging:
-#########################################################################
 
-SIMULATION = os.environ.get('SIMULATION', 'false').lower() == 'true'
+###############################################################################
+# Helpers
+###############################################################################
 
-if SIMULATION:
-    import debugpy
+
+@dataclass
+class ManagedNodeRecord:
+    fq_name: str
+    parameter_names: list[str] = field(default_factory=list)
+    values: dict[str, object] = field(default_factory=dict)
+
 
 ###############################################################################
 # Class
 ###############################################################################
 
+
 class ConfigurationServer(Node):
-    """
-    Configuration server node, handles parameter declaration and parameter events, while loading configuration from file.
-    """
     def __init__(
         self,
-        node_name="configuration_server",
-        namespace="/configuration/configuration_server"
+        node_name: str = "configuration_server",
+        namespace: str = "/configuration/configuration_server",
     ):
-        """
-        Constructor, initializes node and loads configuration from file.
-        
-        Parameters:
-            node_name (str): Node name.
-            namespace (str): Node namespace.
-        """
+        super().__init__(node_name=node_name, namespace=namespace)
 
-        super().__init__(
-            node_name=node_name, 
-            namespace=namespace
+        self._declare_support_parameter_if_missing("parameters_path_postfix", "parameters/")
+        self._declare_support_parameter_if_missing("default_parameter_file", "parameter_manifest.yaml")
+        self._declare_support_parameter_if_missing("sim_parameter_file", "parameter_manifest.yaml")
+        self._declare_support_parameter_if_missing("parameter_snapshots_path_postfix", "parameter_snapshots/")
+        self._declare_support_parameter_if_missing("default_snapshot_file", "default_snapshot.yaml")
+        self._declare_support_parameter_if_missing("sim_snapshot_file", "sim_snapshot.yaml")
+
+        self.cb_group = ReentrantCallbackGroup()
+
+        self.schema_file_path = resolve_schema_file(
+            parameters_path_postfix=str(self.get_parameter("parameters_path_postfix").value),
+            default_parameter_file=str(self.get_parameter("default_parameter_file").value),
+            sim_parameter_file=str(self.get_parameter("sim_parameter_file").value),
         )
-
-        log_level = os.environ.get('CONFIGURATION_SERVER_LOG_LEVEL')
-        
-        if log_level is not None:
-            log_level = log_level.upper()
-            
-            if log_level == 'DEBUG':
-                self.get_logger().set_level(rclpy.logging.LoggingSeverity.DEBUG)
-            elif log_level == 'INFO':
-                self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
-            elif log_level == 'WARN':
-                self.get_logger().set_level(rclpy.logging.LoggingSeverity.WARN)
-            elif log_level == 'ERROR':
-                self.get_logger().set_level(rclpy.logging.LoggingSeverity.ERROR)
-            elif log_level == 'FATAL':
-                self.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)
-        
-        self.get_logger().info("ConfigurationServer.__init__(): Initializing node " + node_name + " in namespace " + namespace + ".")
-
-        self.declare_parameter("parameters_path_postfix", "parameters")
-        self.declare_parameter("default_parameter_file", "parameters_real.yaml")
-        self.declare_parameter("sim_parameter_file", "parameters_sim.yaml")
-
-        if not SIMULATION:
-            self.params_file = str(self.get_parameter("default_parameter_file").value)
-        else:
-            self.params_file = str(self.get_parameter("sim_parameter_file").value)
-
-        self.get_logger().info("ConfigurationServer.__init__(): Using parameter file: " + self.params_file + ".")
-
-        self.iii_config_dir: Optional[str] = None
-
-        self.params_dir: Optional[str] = None
-        
-        self.params_dir: Optional[str] = None
-        
-        self.params_file: Optional[str] = None
-        
-        self.ros_params_file: Optional[str] = None
-
         self.parameter_handler: Optional[ParameterHandler] = None
-
-        self.declared_params: Optional[dict[str, str|int|float|bool|list[str|int|float|bool]]] = None
-        self.declared_params_nodes: Optional[dict[str, list[str]]] = None
-        self.parameters_initialized: Optional[dict[str, bool]] = None
-
-        self.param_success: Optional[bool] = None
+        self.native_core: Optional[NativeConfiguratorCore] = None
+        self.managed_keys: set[str] = set()
+        self.server_values: dict[str, object] = {}
+        self.node_registry: dict[str, ManagedNodeRecord] = {}
+        self.current_parameter_file: str = self._default_snapshot_file_name()
 
         self.declare_parameters_service: Optional[Service] = None
-        
         self.undeclare_parameters_service: Optional[Service] = None
-        
         self.get_parameter_yaml_service: Optional[Service] = None
-        
         self.get_declared_parameters_service: Optional[Service] = None
-        
         self.save_parameters_service: Optional[Service] = None
-        
         self.get_parameter_files_service: Optional[Service] = None
-        
         self.load_parameters_service: Optional[Service] = None
-        
         self.set_parameter_from_gc_service: Optional[Service] = None
-        
         self.get_current_parameter_file_service: Optional[Service] = None
-        
         self.set_current_parameter_file_as_default_service: Optional[Service] = None
+        self.managed_node_notification_subscription = None
+        self.reconcile_timer = None
+        self.pending_node_notifications: set[str] = set()
 
-        #/parameter_events topic subscriber:
-        self.is_active = False
-        
-        self.parameter_events_subscription: Optional[rclpy.subscription.Subscription] = None
+    def _declare_support_parameter_if_missing(self, name: str, default_value: str) -> None:
+        if not self.has_parameter(name):
+            self.declare_parameter(name, default_value)
 
-        self.parameter_callback_registered: bool = False
+    def _snapshot_dir(self) -> Path:
+        snapshot_dir = resolve_snapshot_dir(
+            snapshot_path_postfix=str(self.get_parameter("parameter_snapshots_path_postfix").value)
+        )
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        return snapshot_dir
 
-        self.get_logger().info("ConfigurationServer.__init__(): Node " + node_name + " initialized successfully, ready for configuration.")
+    def _default_snapshot_file_name(self) -> str:
+        use_sim = os.environ.get("SIMULATION", "false").lower() == "true"
+        parameter_name = "sim_snapshot_file" if use_sim else "default_snapshot_file"
+        return str(self.get_parameter(parameter_name).value)
 
-    def __del__(self):
-        if rclpy.ok():
-            self.get_logger().info("ConfigurationServer.__del__(): Deleting ConfigurationServer object.")
-        else:
-            # Print to console if rclpy is not ok
-            print("ConfigurationServer.__del__(): Deleting ConfigurationServer object.")
+    def _default_snapshot_path(self) -> Path:
+        return self._snapshot_dir() / self._default_snapshot_file_name()
 
-        self.on_delete()
-
-    def on_configure(
-        self, 
-        state: State
-    ) -> TransitionCallbackReturn:
-        self.get_logger().info("ConfigurationServer.on_configure()")
-        
+    def on_configure(self, state: State) -> TransitionCallbackReturn:
         ret = super().on_configure(state)
-
-        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
-            self.get_logger().error("ConfigurationServer.on_configure(): Base class configuration failed.")
+        if ret != TransitionCallbackReturn.SUCCESS:
             return ret
 
-        # Get user:
-        self.iii_config_dir = os.path.join(os.getenv("CONFIG_BASE_DIR", default="~/.config"), "iii_drone")
+        try:
+            from iii_drone_configuration._native import NativeConfiguratorCore
+        except ImportError as exc:
+            self.get_logger().error(
+                "iii_drone_configuration native bindings are not available. "
+                "Build the iii_drone_configuration package before using the configuration server."
+            )
+            return TransitionCallbackReturn.ERROR
 
-        parameters_path_postfix = str(self.get_parameter("parameters_path_postfix").value)
-        
-        self.params_dir = os.path.join(self.iii_config_dir, parameters_path_postfix)
-
-        
-        # Replace "~" with "/home/<user>" in the path
-        self.params_dir = self.params_dir.replace("~", os.getenv("HOME"))
-        
-        if not SIMULATION:
-            self.params_file = str(self.get_parameter("default_parameter_file").value)
-        else:
-            self.params_file = str(self.get_parameter("sim_parameter_file").value)
-
-        params_file = self.params_file
-        
-        if not self.validate_parameter_file_name(params_file):
-            msg = "ConfigurationServer.on_configure(): Default parameter file name " + params_file + " is not valid."
-            self.get_logger().error(msg)
-            return TransitionCallbackReturn.FAILURE
-        
-        self.params_file = os.path.join(
-            self.params_dir,
-            params_file
-        )
-        
-        self.ros_params_file = os.path.join(self.iii_config_dir, "ros_params.yaml")
-
-        self.parameter_handler = ParameterHandler.from_parameter_file(self.params_file)
-
-        # Declared params empty dict:
-        self.declared_params = {}
-        self.declared_params_nodes = {}
-        self.parameters_initialized = {}
-
-        self.param_success = True
-
-        self.cnt = 1
-
-        self.get_logger().info("ConfigurationServer.on_configure(): ConfigurationServer configured successfully.")
-
+        self.native_core = NativeConfiguratorCore(str(self.schema_file_path))
+        self.parameter_handler = ParameterHandler.from_parameter_file(str(self.schema_file_path))
+        self.managed_keys = set(self.native_core.schema_parameter_names())
+        self.server_values = {
+            key: self.native_core.get_schema_entry(key)["default_value"] for key in sorted(self.managed_keys)
+        }
+        self.node_registry.clear()
+        self.current_parameter_file = self._default_snapshot_file_name()
+        self._load_default_snapshot_if_available()
         return TransitionCallbackReturn.SUCCESS
 
-    def on_cleanup(
-        self,
-        state: State
-    ) -> TransitionCallbackReturn:
-        self.get_logger().info("ConfigurationServer.on_cleanup()")
-
-        ret = super().on_cleanup(state)
-        
-        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
-            self.get_logger().error("ConfigurationServer.on_cleanup(): Base class cleanup failed.")
-            return ret
-        
-        self._cleanup()
-
-        gc.collect()
-        
-        self.get_logger().info("ConfigurationServer.on_cleanup(): ConfigurationServer cleaned up successfully.")
-        
-        return TransitionCallbackReturn.SUCCESS
-        
-    def _cleanup(self):
-        self.get_logger().debug("ConfigurationServer._cleanup(): Cleaning up ConfigurationServer object.")
-
-        self.on_delete()
-
-        if self.declared_params is not None:
-            for key, value in self.declared_params.items():
-                try:
-                    self.undeclare_parameter(key)
-                except ParameterNotDeclaredException as e:
-                    pass
-        
-        self.iii_config_dir: Optional[str] = None
-
-        self.params_dir: Optional[str] = None
-        
-        self.params_dir: Optional[str] = None
-        
-        self.params_file: Optional[str] = None
-        
-        self.ros_params_file: Optional[str] = None
-
-        self.parameter_handler: Optional[ParameterHandler] = None
-
-        self.declared_params: Optional[dict[str, str|int|float|bool|list[str|int|float|bool]]] = None
-        self.declared_params_nodes: Optional[dict[str, list[str]]] = None
-        self.parameters_initialized: Optional[dict[str, bool]] = None
-
-        self.param_success: Optional[bool] = None
-        
-    def on_activate(
-        self,
-        state: State
-    ) -> TransitionCallbackReturn:
-        self.get_logger().info("ConfigurationServer.on_activate()")
-
+    def on_activate(self, state: State) -> TransitionCallbackReturn:
         ret = super().on_activate(state)
-        
-        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
-            self.get_logger().error("ConfigurationServer.on_activate(): Base class activation failed.")
+        if ret != TransitionCallbackReturn.SUCCESS:
             return ret
 
-        # self.parameter_events_subscription = self.create_subscription(
-        #     rcl_msg.ParameterEvent,
-        #     "/parameter_events",
-        #     self.parameter_events_callback,
-        #     10
-        # )
-        
-        # Initialize services:
         self.declare_parameters_service = self.create_service(
-            DeclareParameters,
-            "declare_parameters",
-            self.declare_parameters_callback
+            DeclareParameters, "declare_parameters", self.declare_parameters_callback, callback_group=self.cb_group
         )
-        
         self.undeclare_parameters_service = self.create_service(
-            UndeclareParameters,
-            "undeclare_parameters",
-            self.undeclare_parameters_callback
+            UndeclareParameters, "undeclare_parameters", self.undeclare_parameters_callback, callback_group=self.cb_group
         )
-        
         self.get_parameter_yaml_service = self.create_service(
-            GetParameterYaml,
-            "get_parameter_yaml",
-            self.get_parameter_yaml_callback
+            GetParameterYaml, "get_parameter_yaml", self.get_parameter_yaml_callback, callback_group=self.cb_group
         )
-        
         self.get_declared_parameters_service = self.create_service(
             GetDeclaredParameters,
             "get_declared_parameters",
-            self.get_declared_parameters_callback
+            self.get_declared_parameters_callback,
+            callback_group=self.cb_group,
         )
-        
         self.save_parameters_service = self.create_service(
-            SaveParameters,
-            "save_parameters",
-            self.save_parameters_callback
+            SaveParameters, "save_parameters", self.save_parameters_callback, callback_group=self.cb_group
         )
-        
         self.get_parameter_files_service = self.create_service(
-            GetParameterFiles,
-            "get_parameter_files",
-            self.get_parameter_files_callback
+            GetParameterFiles, "get_parameter_files", self.get_parameter_files_callback, callback_group=self.cb_group
         )
-        
         self.load_parameters_service = self.create_service(
-            LoadParameters,
-            "load_parameters",
-            self.load_parameters_callback
+            LoadParameters, "load_parameters", self.load_parameters_callback, callback_group=self.cb_group
         )
-        
         self.set_parameter_from_gc_service = self.create_service(
             SetParameterFromGC,
             "set_parameter_from_gc",
-            self.set_parameter_from_gc_callback
+            self.set_parameter_from_gc_callback,
+            callback_group=self.cb_group,
         )
-        
         self.get_current_parameter_file_service = self.create_service(
             GetCurrentParameterFile,
             "get_current_parameter_file",
-            self.get_current_parameter_file_callback
+            self.get_current_parameter_file_callback,
+            callback_group=self.cb_group,
         )
-        
         self.set_current_parameter_file_as_default_service = self.create_service(
             SetCurrentParameterFileAsDefault,
             "set_current_parameter_file_as_default",
-            self.set_current_parameter_file_as_default_callback
+            self.set_current_parameter_file_as_default_callback,
+            callback_group=self.cb_group,
         )
-        
-        # Service callback that gets called before a parameter is set:
-        # self.add_on_set_parameters_callback(self.set_parameter_event_callback)
 
-        self.parameter_callback_registered = True
-
-        self.is_active = True
-
-        self.get_logger().info("ConfigurationServer.on_activate(): ConfigurationServer activated successfully.")
-        
+        self.managed_node_notification_subscription = self.create_subscription(
+            String,
+            "/configuration/configuration_server/managed_node_available",
+            self.managed_node_notification_callback,
+            10,
+            callback_group=self.cb_group,
+        )
+        self.reconcile_timer = self.create_timer(1.0, self.reconcile_nodes, callback_group=self.cb_group)
+        self.reconcile_nodes()
         return TransitionCallbackReturn.SUCCESS
 
-    def on_deactivate(
-        self,
-        state: State
-    ) -> TransitionCallbackReturn:
-        self.get_logger().info("ConfigurationServer.on_deactivate()")
-        
+    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
         ret = super().on_deactivate(state)
-        
-        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
-            self.get_logger().error("ConfigurationServer.on_deactivate(): Base class deactivation failed.")
+        if ret != TransitionCallbackReturn.SUCCESS:
             return ret
-        
-        self._deactivate()
 
-        gc.collect()
-        
-        self.get_logger().info("ConfigurationServer.on_deactivate(): ConfigurationServer deactivated successfully.")
-        
+        for service_name in (
+            "declare_parameters_service",
+            "undeclare_parameters_service",
+            "get_parameter_yaml_service",
+            "get_declared_parameters_service",
+            "save_parameters_service",
+            "get_parameter_files_service",
+            "load_parameters_service",
+            "set_parameter_from_gc_service",
+            "get_current_parameter_file_service",
+            "set_current_parameter_file_as_default_service",
+        ):
+            service = getattr(self, service_name)
+            if service is not None:
+                service.destroy()
+                setattr(self, service_name, None)
+
+        if self.managed_node_notification_subscription is not None:
+            self.destroy_subscription(self.managed_node_notification_subscription)
+            self.managed_node_notification_subscription = None
+
+        if self.reconcile_timer is not None:
+            self.destroy_timer(self.reconcile_timer)
+            self.reconcile_timer = None
+
         return TransitionCallbackReturn.SUCCESS
-        
-    def _deactivate(self):
-        self.get_logger().debug("ConfigurationServer._deactivate(): Deactivating ConfigurationServer object.")
 
-        # if self.parameter_events_subscription is not None:
-        #     self.destroy_subscription(self.parameter_events_subscription)
-        #     del self.parameter_events_subscription
-        #     self.parameter_events_subscription = None
-
-        if self.declare_parameters_service is not None:
-            self.declare_parameters_service.destroy()
-            del self.declare_parameters_service
-            self.declare_parameters_service = None
-
-        if self.undeclare_parameters_service is not None:
-            self.undeclare_parameters_service.destroy()
-            del self.undeclare_parameters_service
-            self.undeclare_parameters_service = None
-
-        if self.get_parameter_yaml_service is not None:
-            self.get_parameter_yaml_service.destroy()
-            del self.get_parameter_yaml_service
-            self.get_parameter_yaml_service = None
-
-        if self.get_declared_parameters_service is not None:
-            self.get_declared_parameters_service.destroy()
-            del self.get_declared_parameters_service
-            self.get_declared_parameters_service = None
-
-        if self.save_parameters_service is not None:
-            self.save_parameters_service.destroy()
-            del self.save_parameters_service
-            self.save_parameters_service = None
-
-        if self.get_parameter_files_service is not None:
-            self.get_parameter_files_service.destroy()
-            del self.get_parameter_files_service
-            self.get_parameter_files_service = None
-
-        if self.load_parameters_service is not None:
-            self.load_parameters_service.destroy()
-            del self.load_parameters_service
-            self.load_parameters_service = None
-
-        if self.set_parameter_from_gc_service is not None:
-            self.set_parameter_from_gc_service.destroy()
-            del self.set_parameter_from_gc_service
-            self.set_parameter_from_gc_service = None
-
-        if self.get_current_parameter_file_service is not None:
-            self.get_current_parameter_file_service.destroy()
-            del self.get_current_parameter_file_service
-            self.get_current_parameter_file_service = None
-
-        if self.set_current_parameter_file_as_default_service is not None:
-            self.set_current_parameter_file_as_default_service.destroy()
-            del self.set_current_parameter_file_as_default_service
-            self.set_current_parameter_file_as_default_service = None
-
-        # if self.parameter_callback_registered:
-        #     self.remove_on_set_parameters_callback(self.set_parameter_event_callback)
-        #     self.parameter_callback_registered = False
-
-        self.is_active = False
-        
-    def on_shutdown(
-        self,
-        state: State
-    ) -> TransitionCallbackReturn:
-        self.get_logger().info("ConfigurationServer.on_shutdown()")
-        
-        ret = super().on_shutdown(state)
-        
-        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
-            self.get_logger().error("ConfigurationServer.on_shutdown(): Base class shutdown failed.")
+    def on_cleanup(self, state: State) -> TransitionCallbackReturn:
+        ret = super().on_cleanup(state)
+        if ret != TransitionCallbackReturn.SUCCESS:
             return ret
-        
-        self._deactivate()
-        self._cleanup()
-        
-        self.get_logger().info("ConfigurationServer.on_shutdown(): ConfigurationServer shut down successfully.")
-
-        def shutdown_rclpy():
-            time.sleep(1)
-            rclpy.shutdown()
-
-        thread = threading.Thread(target=shutdown_rclpy)
-        thread.start()
-        
+        self.native_core = None
+        self.parameter_handler = None
+        self.managed_keys.clear()
+        self.server_values.clear()
+        self.node_registry.clear()
+        self.pending_node_notifications.clear()
         return TransitionCallbackReturn.SUCCESS
-    
-    def on_error(
-        self,
-        state: State
-    ) -> TransitionCallbackReturn:
-        self.get_logger().info("ConfigurationServer.on_error()")
-        
-        ret = super().on_error(state)
-        
-        if ret == TransitionCallbackReturn.ERROR or ret == TransitionCallbackReturn.FAILURE:
-            self.get_logger().error("ConfigurationServer.on_error(): Base class error failed.")
-            return ret
-        
-        self._deactivate()
-        self._cleanup()
-        
-    def on_delete(self):
-        if rclpy.ok():
-            self.get_logger().info("ConfigurationServer.on_delete(): Deleting ConfigurationServer object.")
-        else:
-            # Print to console if rclpy is not ok
-            print("ConfigurationServer.on_delete(): Deleting ConfigurationServer object.")
 
+    def managed_node_notification_callback(self, msg: String) -> None:
+        self.pending_node_notifications.add(msg.data)
+        self.reconcile_nodes()
+
+    def _get_node_fq_names(self) -> list[str]:
+        names = []
+        for name, namespace in self.get_node_names_and_namespaces():
+            fq_name = (namespace.rstrip("/") + "/" + name).replace("//", "/")
+            names.append(fq_name)
+        return names
+
+    def _service_path(self, node_fq_name: str, service_name: str) -> str:
+        return f"{node_fq_name.rstrip('/')}/{service_name}"
+
+    def _call_list_parameters(self, node_fq_name: str) -> Optional[list[str]]:
+        client = self.create_client(ListParameters, self._service_path(node_fq_name, "list_parameters"), callback_group=self.cb_group)
+        if not client.wait_for_service(timeout_sec=0.2):
+            self.destroy_client(client)
+            return None
+        request = ListParameters.Request()
+        request.prefixes = []
+        request.depth = 1000
+        try:
+            response = client.call(request)
+            return list(response.result.names)
+        finally:
+            self.destroy_client(client)
+
+    def _call_get_parameters(self, node_fq_name: str, parameter_names: list[str]) -> Optional[dict[str, object]]:
+        client = self.create_client(GetParameters, self._service_path(node_fq_name, "get_parameters"), callback_group=self.cb_group)
+        if not client.wait_for_service(timeout_sec=0.2):
+            self.destroy_client(client)
+            return None
+        request = GetParameters.Request()
+        request.names = parameter_names
+        try:
+            response = client.call(request)
+            values = {}
+            for name, value in zip(parameter_names, response.values):
+                values[name] = rclpy.parameter.parameter_value_to_python(value)
+            return values
+        finally:
+            self.destroy_client(client)
+
+    def _call_set_parameter(self, node_fq_name: str, parameter_name: str, value: object) -> tuple[bool, str]:
+        client = self.create_client(SetParameters, self._service_path(node_fq_name, "set_parameters"), callback_group=self.cb_group)
+        if not client.wait_for_service(timeout_sec=0.5):
+            self.destroy_client(client)
+            return False, f"Service not available for {node_fq_name}"
+
+        request = SetParameters.Request()
+        parameter = rclpy.parameter.Parameter(name=parameter_name, value=value)
+        request.parameters = [parameter.to_parameter_msg()]
+
+        try:
+            response = client.call(request)
+            if not response.results:
+                return False, f"No result returned by {node_fq_name}"
+            result = response.results[0]
+            return bool(result.successful), str(result.reason)
+        finally:
+            self.destroy_client(client)
+
+    def reconcile_nodes(self) -> None:
         if self.parameter_handler is None:
             return
-        
-        if self.parameter_handler.any_params_changed:
-            if rclpy.ok():
-                self.get_logger().info("ConfigurationServer.on_delete(): Parameters changed, saving...")
-            else:
-                # Print to console if rclpy is not ok
-                print("ConfigurationServer.on_delete(): Parameters changed, saving...")
 
-            request = SaveParameters.Request()
-            request.file = ""
-            request.overwrite = True
-            request.set_as_default = True
+        discovered_fq_names = set(self._get_node_fq_names())
+        discovered_fq_names.discard(self.get_fully_qualified_name())
 
-            response = self.save_parameters_callback(request, SaveParameters.Response())
-            
-            if rclpy.ok():
-                if not response.success:
-                    self.get_logger().fatal("ConfigurationServer.on_delete(): Failed to save parameters: " + response.message + ".")
-                else:
-                    self.get_logger().info("ConfigurationServer.on_delete(): Parameters saved successfully to file " + response.file + ".")
-            else:
-                # Print to console if rclpy is not ok
-                if not response.success:
-                    print("ConfigurationServer.on_delete(): Failed to save parameters: " + response.message + ".")
-                else:
-                    print("ConfigurationServer.on_delete(): Parameters saved successfully to file " + response.file + ".")
-        
-    def set_parameter_event_callback(
-        self,
-        parameters: "list[rcl_msg.Parameter]"
-    ) -> rcl_msg.SetParametersResult:
-        """
-        Callback for parameter events, gets called before a parameter is set. 
-        Rejects if the parameter is constant, if the type or value do not match the loaded parameters,
-        if the parameter is not listed in the loaded parameters, or if the validation function returns false.
-
-        Parameters:
-            parameters (list[Parameter]): List of parameters to be set.
-
-        Returns:
-            SetParametersResult: Result of the callback.
-        """
-
-        self.get_logger().debug("ConfigurationServer.set_parameter_event_callback()")
-
-        result = rcl_msg.SetParametersResult()
-
-        for parameter in parameters:
-            if parameter.name in self.declared_params:
-                try:
-                    self.parameter_handler.can_set_param(
-                        parameter.name,
-                        parameter.value,
-                        self.parameters_initialized[parameter.name]
-                    )
-                    
-                except KeyError as e:
-                    return_string = "Parameter " + parameter.name + " not listed in parameters file, rejecting."
-                    self.get_logger().fatal("ConfigurationServer.set_parameter_event_callback(): " + return_string + ": " + str(e))
-                    result.successful = False
-                    result.reason = return_string
-
-                    return result
-
-                except AttributeError as e:
-                    return_string = "Parameter " + parameter.name + " is constant, rejecting."
-                    self.get_logger().error("ConfigurationServer.set_parameter_event_callback(): " + return_string + ": " + str(e))
-                    result.successful = False
-                    result.reason = return_string
-
-                    return result
-
-                except TypeError as e:
-                    return_string = "Parameter " + parameter.name + " has different type, rejecting."
-                    self.get_logger().error("ConfigurationServer.set_parameter_event_callback(): " + return_string + ": " + str(e))
-                    result.successful = False
-                    result.reason = return_string
-
-                    return result
-                
-                except ValueError as e:
-                    return_string = "Parameter " + parameter.name + " failed validation, rejecting."
-                    self.get_logger().error("ConfigurationServer.set_parameter_event_callback(): " + return_string + ": " + str(e))
-                    result.successful = False
-                    result.reason = return_string
-
-                    return result
-
-        self.get_logger().info("ConfigurationServer.set_parameter_event_callback(): Request to set parameters accepted.")
-
-        result.successful = True
-
-        return result
-    
-    def parameter_events_callback(
-        self,
-        parameter_event: rcl_msg.ParameterEvent
-    ) -> None:
-        """
-        Callback for parameter events, gets called after a parameter is set.
-        Updates the declared parameters dict with the new parameter values
-        and updates the parameter_handler object.
-        
-        Parameters:
-            parameter_event (ParameterEvent): Parameter event.
-
-        Raises:
-            RuntimeError: If parameters are deleted, since this is not supported.
-            RuntimeError: If the param can not be set for whatever reason, since this should not happen as it is verified in the pre-set parameter callback.
-        """
-
-        self.get_logger().debug("ConfigurationServer.parameter_events_callback()")
-
-        if not self.is_active:
-            return
-
-        if parameter_event.node != self.get_fully_qualified_name():
-            return
-        
-
-        if len(parameter_event.deleted_parameters) > 0:
-            self.get_logger().fatal("ConfigurationServer.parameter_events_callback(): Deleted parameters not supported.")
-            raise RuntimeError("Deleted parameters not supported.")
-        
-        for parameter in parameter_event.changed_parameters + parameter_event.new_parameters:
-            if parameter.name == self.params_file or "use_sim_time" in parameter.name:
+        for node_fq_name in sorted(discovered_fq_names):
+            parameter_names = self._call_list_parameters(node_fq_name)
+            if parameter_names is None:
                 continue
-            try:
-                param_value = self._get_parameter_value_from_msg(
-                    parameter.name, 
-                    parameter.value
-                )
 
-                self.parameter_handler.set_param(
-                    parameter.name, 
-                    param_value,
-                    self.parameters_initialized[parameter.name]
-                )
+            managed_parameter_names = sorted(set(parameter_names).intersection(self.managed_keys))
+            if not managed_parameter_names:
+                continue
 
-                self.declared_params[parameter.name] = param_value
-                self.parameters_initialized[parameter.name] = True
+            values = self._call_get_parameters(node_fq_name, managed_parameter_names)
+            if values is None:
+                continue
 
-                self.get_logger().info("ConfigurationServer.parameter_events_callback(): Parameter " + parameter.name + " set to " + str(param_value) + ".")
+            self.node_registry[node_fq_name] = ManagedNodeRecord(
+                fq_name=node_fq_name,
+                parameter_names=managed_parameter_names,
+                values=values,
+            )
 
-            except KeyError as e:
-                error_str = "ConfigurationServer.parameter_events_callback(): Parameter " + parameter.name + " not listed in parameters file, but was changed anyways."
+        offline_nodes = set(self.node_registry.keys()) - discovered_fq_names
+        for node_fq_name in offline_nodes:
+            del self.node_registry[node_fq_name]
 
-                self.get_logger().fatal(error_str)
-                raise RuntimeError(error_str) from e
+        grouped_nodes: dict[str, list[str]] = {}
+        for node_fq_name, record in self.node_registry.items():
+            for parameter_name in record.parameter_names:
+                grouped_nodes.setdefault(parameter_name, []).append(node_fq_name)
 
-            except AttributeError as e:
-                error_str = "ConfigurationServer.parameter_events_callback(): Parameter " + parameter.name + " is constant, but was changed anyways."
+        for parameter_name, node_fq_names in grouped_nodes.items():
+            authoritative_value = self.server_values[parameter_name]
+            for node_fq_name in node_fq_names:
+                node_value = self.node_registry[node_fq_name].values.get(parameter_name)
+                if node_value != authoritative_value:
+                    success, message = self._call_set_parameter(node_fq_name, parameter_name, authoritative_value)
+                    if not success:
+                        self.get_logger().warn(
+                            f"Failed to synchronize '{parameter_name}' to '{node_fq_name}': {message}"
+                        )
+                    else:
+                        self.node_registry[node_fq_name].values[parameter_name] = authoritative_value
 
-                self.get_logger().fatal(error_str)
-                raise RuntimeError(error_str) from e
-            
-            except TypeError as e:
-                error_str = "ConfigurationServer.parameter_events_callback(): Parameter " + parameter.name + " has different type, but was changed anyways."
+        self.pending_node_notifications.clear()
 
-                self.get_logger().fatal(error_str)
-                raise RuntimeError(error_str) from e
-            
-            except ValueError as e:
-                error_str = "ConfigurationServer.parameter_events_callback(): Parameter " + parameter.name + " failed validation, but was changed anyways."
+    def _group_nodes_for_parameter(self, parameter_name: str) -> list[str]:
+        return [
+            node_fq_name
+            for node_fq_name, record in self.node_registry.items()
+            if parameter_name in record.parameter_names
+        ]
 
-                self.get_logger().fatal(error_str)
-                raise RuntimeError(error_str) from e
+    def _parameter_type(self, parameter_name: str) -> int:
+        if self.native_core is None:
+            raise RuntimeError("Configuration server native core is not initialized")
+        return int(self.native_core.get_schema_entry(parameter_name)["parameter_type"])
 
+    def _candidate_parameter_map(self, values: dict[str, object]) -> dict[str, dict[str, object]]:
+        return {
+            name: {
+                "type": self._parameter_type(name),
+                "value": value,
+            }
+            for name, value in values.items()
+        }
 
-    def _get_parameter_value_from_msg(
+    def _apply_shared_parameter_update(
         self,
         parameter_name: str,
-        parameter_value: rcl_msg.ParameterValue
-    ) -> str|int|float|bool|list[str|int|float|bool]:
-        """
-        Gets the parameter value from the ParameterValue object 
-        based on the type.
+        value: object,
+        require_targets: bool = True,
+        allow_constant_override: bool = False,
+    ) -> tuple[bool, str]:
+        if self.parameter_handler is None or self.native_core is None:
+            return False, "Configuration server is not configured"
 
-        Parameters:
-            parameter_name (str): Parameter name.
-            parameter_value (ParameterValue): Parameter value.
-
-        Returns:
-            str|int|float|bool|list[str|int|float|bool]: Parameter value.
-
-        Raises:
-            KeyError: If the parameter name is not listed in the loaded parameters.
-            TypeError: If the parameter type is not recognized.
-        """
-
-        self.get_logger().debug("ConfigurationServer._get_parameter_value_from_msg()")
-
-        param_dict = self.parameter_handler.get_param(parameter_name)
-
-        if param_dict["type"] == "string":
-            return parameter_value.string_value
-        
-        elif param_dict["type"] == "int":
-            return parameter_value.integer_value
-        
-        elif param_dict["type"] == "float":
-            return parameter_value.double_value
-        
-        elif param_dict["type"] == "bool":
-            return parameter_value.bool_value
-        
-        elif param_dict["type"] == "string_array":
-            return parameter_value.string_array_value
-        
-        elif param_dict["type"] == "int_array" or param_dict["type"] == "integer_array":
-            return parameter_value.integer_array_value
-        
-        elif param_dict["type"] == "float_array":
-            return parameter_value.double_array_value
-        
-        elif param_dict["type"] == "bool_array":
-            return parameter_value.bool_array_value
-        
-        else:
-            raise TypeError("Type " + str(param_dict["type"]) + " not recognized.")
-
-    def declare_parameters_callback(
-        self,
-        request: DeclareParameters.Request,
-        response: DeclareParameters.Response
-    ) -> DeclareParameters.Response:
-        """
-        Callback for declare_parameters service. Checks that the parameters has been loaded,
-        and that the types matches the loaded types.
-
-        Parameters:
-            request (DeclareParameters.Request): Service request.
-            response (DeclareParameters.Response): Service response.
-
-        Returns:
-            DeclareParameters.Response: Service response.
-        """
-
-        self.get_logger().debug("ConfigurationServer.declare_parameters_callback()")
-
-        if len(request.names) == 0:
-            response.succeeded = False
-            response.message = "No parameters to declare."
-
-            return response
-        
-        if len(request.names) != len(request.types):
-            response.succeeded = False
-            response.message = "Number of names and types do not match."
-
-            return response
-        
-        param_dicts = {}
+        if self.server_values.get(parameter_name) == value:
+            return True, ""
 
         try:
-            for name in request.names:
-                param_dicts[name] = self.parameter_handler.get_param(name)
-        
-        except KeyError as e:
-            response.succeeded = False
-            response.message = "Parameter not listed in parameters file: " + str(e)
-
-            return response
-
-        if request.node_name == "":
-            response.succeeded = False
-            response.message = "Node name is empty."
-
-            self.get_logger().error("ConfigurationServer.declare_parameters_callback(): " + response.message)
-
-            return response
-
-        failed_parameters = []
-        already_declared_parameters = []
-
-        for i in range(len(request.names)):
-            name = request.names[i]
-            param_type = request.types[i]
-            
-            param_dict = param_dicts[name]
-
-            if name in self.declared_params:
-                already_declared_parameters.append(name)
-                continue
-
-            if param_type != param_dict["type"]:
-                failed_parameters.append(name)
-                continue
-
-        if len(failed_parameters) > 0:
-            response.succeeded = False
-            response.message = "Failed to declare parameters. Types do not match loaded parameters. Conflicting parameters: " + str(failed_parameters) + "."
-            
-            return response
-
-        values: List[rcl_msg.ParameterValue] = []
-
-        def get_parameter_value_msg(
-            _type: str,
-            value: str|int|float|bool|list[str|int|float|bool]
-        ) -> rcl_msg.ParameterValue:
-            parameter_value = rcl_msg.ParameterValue()
-            parameter_value.type = self._string_to_parameter_type(_type)
-            parameter_value = self._set_parameter_value(
-                parameter_value,
-                value
-            )
-            
-            return parameter_value
-
-        for name in request.names:
-            param_dict = param_dicts[name]
-            value = param_dict["value"]
-            
-            if name in already_declared_parameters:
-                self.declared_params_nodes[name].append(request.node_name)
-                
-                parameter_value = get_parameter_value_msg(
-                    param_dict["type"], 
-                    value
-                )
-                values.append(parameter_value)
-                
-                continue
-            
-            self.declare_parameter(
-                name,
-                value
-            )
-            
-            parameter_value = get_parameter_value_msg(
-                param_dict["type"], 
-                value
-            )
-            values.append(parameter_value)
-
-            self.declared_params[name] = value
-            self.declared_params_nodes[name] = [request.node_name]
-            self.parameters_initialized[name] = False
-
-        response.succeeded = True
-        response.message = "Parameter declared successfully."
-        response.values = values
-        
-        if len(already_declared_parameters) > 0:
-            response.message += " Already declared parameters: " + str(already_declared_parameters) + "."
-
-        return response
-
-    def undeclare_parameters_callback(
-        self,
-        request: UndeclareParameters.Request,
-        response: UndeclareParameters.Response
-    ) -> UndeclareParameters.Response:
-        """
-        Callback for undeclare_parameters service. Removes the node from list of nodes that declared the parameter for all parameters.
-        If the node name is the last one, undeclares the parameter.
-
-        Parameters:
-            request (UndeclareParameters.Request): Service request.
-            response (UndeclareParameters.Response): Service response.
-
-        Returns:
-            UndeclareParameters.Response: Service response.
-        """
-
-        self.get_logger().debug("ConfigurationServer.undeclare_parameters_callback()")
-
-        if self.declared_params is None:
-            response.succeeded = False
-            response.message = "Parameters not declared."
-
-            return response
-
-        has_declared_parameter = False
-
-        self.get_logger().info("ConfigurationServer.undeclare_parameters_callback(): Undeclaring parameters for node " + request.node_name + ".")
-
-        declared_params_nodes_copy = self.declared_params_nodes.copy()
-
-        for name, nodes in declared_params_nodes_copy.items():
-            if request.node_name in nodes:
-                has_declared_parameter = True
-                
-                self.declared_params_nodes[name].remove(request.node_name)
-                
-                if self.declared_params_nodes[name] == []:
-                    self.undeclare_parameter(name)
-
-                    self.declared_params.pop(name)
-                    self.declared_params_nodes.pop(name)
-
-        if not has_declared_parameter:
-            response.succeeded = False
-            response.message = "Node has not declared any parameters."
-
-            return response
-
-        response.succeeded = True
-        response.message = "Parameters fully undeclared for node."
-
-        return response
-    
-    def get_parameter_yaml_callback(
-        self,
-        request: GetParameterYaml.Request,
-        response: GetParameterYaml.Response
-    ) -> GetParameterYaml.Response:
-        """
-        Callback for get_parameter_yaml service. Returns the loaded parameters as a yaml string.
-
-        Parameters:
-            request (GetParameterYaml.Request): Service request.
-            response (GetParameterYaml.Response): Service response.
-
-        Returns:
-            GetParameterYaml.Response: Service response.
-        """
-
-        self.get_logger().debug("ConfigurationServer.get_parameter_yaml_callback()")
-
-        response.yaml = self.parameter_handler.get_parameters_yaml_string()
-
-        return response
-    
-    def get_declared_parameters_callback(
-        self,
-        request: GetDeclaredParameters.Request,
-        response: GetDeclaredParameters.Response
-    ) -> GetDeclaredParameters.Response:
-        """
-        Callback for get_declared_parameters service. Returns the declared parameters as a yaml string.
-
-        Parameters:
-            request (GetDeclaredParameters.Request): Service request.
-            response (GetDeclaredParameters.Response): Service response.
-
-        Returns:
-            GetDeclaredParameters.Response: Service response.
-        """
-
-        self.get_logger().debug("ConfigurationServer.get_declared_parameters_callback()")
-
-        response.declared_parameters_yaml = yaml.dump(self.declared_params)
-
-        return response
-    
-    def save_parameters_callback(
-        self,
-        request: SaveParameters.Request,
-        response: SaveParameters.Response
-    ) -> SaveParameters.Response:
-        """
-        Callback for save_parameters service. Saves the parameters to a yaml file.
-
-        Parameters:
-            request (SaveParameters.Request): Service request.
-            response (SaveParameters.Response): Service response.
-
-        Returns:
-            SaveParameters.Response: Service response.
-        """
-
-        self.get_logger().debug("ConfigurationServer.save_parameters_callback()")
-        
-        if request.file == "":
-            # Get the current date and time
-            now = datetime.now()
-
-            # Format the date and time as a string in the format 'YYYYMMDD_HHMM'
-            date_time_string = now.strftime('%Y%m%d_%H%M')
-            
-            if not SIMULATION:
-                request.file = "parameters_real_" + date_time_string + ".yaml"
-            else:
-                request.file = "parameters_sim_" + date_time_string + ".yaml"
-
-        self.get_logger().info("ConfigurationServer.save_parameters_callback(): Request to save parameters to file " + request.file + ".")
-        
-        if not self.validate_parameter_file_name(request.file):
-            response.success = False
-            response.message = "Invalid file name."
-
-            return response
-        
-        file_name = os.path.join(
-            self.params_dir,
-            request.file
-        )
-
-        try:
-            self.parameter_handler.save_parameters(
-                file_name,
-                request.overwrite
-            )
-            
-            if request.set_as_default:
-                self.get_logger().info("ConfigurationServer.save_parameters_callback(): Setting default parameter file to " + request.file + ".")
-                self.set_default_parameter_file(request.file)
-
-            self.params_file = os.path.join(
-                self.params_dir,
-                request.file
-            )
-            
-            response.success = True
-            response.message = "Parameters saved successfully."
-            response.file = file_name
-            
-        except FileExistsError as e:
-            self.get_logger().error("ConfigurationServer.save_parameters_callback(): File already exists: " + str(e))
-            response.success = False
-            response.message = "File already exists and overwrite is false."
-
-        return response
-    
-    def get_parameter_files_callback(
-        self,
-        request: GetParameterFiles.Request,
-        response: GetParameterFiles.Response
-    ) -> GetParameterFiles.Response:
-        """
-        Callback for get_parameter_files service. Returns a list of all parameter files in the parameters directory.
-
-        Parameters:
-            request (GetParameterFiles.Request): Service request.
-            response (GetParameterFiles.Response): Service response.
-
-        Returns:
-            GetParameterFiles.Response: Service response.
-        """
-
-        self.get_logger().debug("ConfigurationServer.get_parameter_files_callback()")
-
-        parameter_files = os.listdir(self.params_dir)
-
-        response.parameter_files = []
-        
-        for parameter_file in parameter_files:
-            if self.validate_parameter_file_name(parameter_file):
-                response.parameter_files.append(parameter_file)
-
-        return response
-    
-    def load_parameters_callback(
-        self,
-        request: LoadParameters.Request,
-        response: LoadParameters.Response
-    ) -> LoadParameters.Response:
-        """
-        Callback for load_parameters service. Loads the parameters from a yaml file.
-
-        Parameters:
-            request (LoadParameters.Request): Service request.
-            response (LoadParameters.Response): Service response.
-
-        Returns:
-            LoadParameters.Response: Service response.
-        """
-
-        self.get_logger().info("ConfigurationServer.load_parameters_callback(): Request to load parameters from file " + request.file + ".")
-
-        if self.parameter_handler.any_params_changed:
-            self.get_logger().info("ConfigurationServer.load_parameters_callback(): Parameters changed, saving...")
-
-            tmp_request = SaveParameters.Request()
-            tmp_request.file = ""
-            tmp_request.overwrite = True
-            tmp_request.set_as_default = True
-
-            tmp_response = self.save_parameters_callback(tmp_request, SaveParameters.Response())
-            
-            if not response.success:
-                self.get_logger().fatal("ConfigurationServer.load_parameters_callback(): Failed to save parameters: " + tmp_response.message + ".")
-            else:
-                self.get_logger().info("ConfigurationServer.load_parameters_callback(): Parameters saved successfully to file " + tmp_response.file + ".")
-        
-        if not self.validate_parameter_file_name(request.file):
-            response.success = False
-            response.message = "Invalid file name."
-
-            return response
-        
-        file_name = os.path.join(
-            self.params_dir,
-            request.file
-        )
-
-        try:
-            changed_parameter_names = self.parameter_handler.load_new_parameter_file(
-                file_name,
-                declared_parameters=list(self.declared_params.keys())
-            )
-            
-            if request.set_as_default:
-                self.set_default_parameter_file(request.file)
-                
-            if changed_parameter_names != []:
-                changed_ros_parameters = [
-                    rclpy.parameter.Parameter(
-                        name=param_name,
-                        value=self.parameter_handler.get_param_value(param_name)
-                    ) for param_name in changed_parameter_names
-                ]
-                
-                set_parameter_results = self.set_parameters(changed_ros_parameters)
-                
-                for result in set_parameter_results:
-                    if not result.successful:
-                        response.success = False
-                        response.message = "Failed to set parameter: " + result.reason + "."
-                        
-                        return response
-            
-            self.params_file = request.file
-            
-            # Schedule reset changed parameters:
-            self.parameter_handler.reset_changed_parameters(changed_parameter_names=changed_parameter_names)
-            
-            response.success = True
-            response.message = "Parameters loaded successfully."
-            
-        except FileNotFoundError as e:
-            response.success = False
-            response.message = "File not found."
-            
-        except ValueError as e:
-            response.success = False
-            response.message = "Invalid parameter."
-            
-        except TypeError as e:
-            response.success = False
-            response.message = "Invalid parameter type."
-            
-        except Exception as e:
-            response.success = False
-            response.message = "Unknown error: " + str(e)
-
-        return response
-    
-    def set_parameter_from_gc_callback(
-        self,
-        request: SetParameterFromGC.Request,
-        response: SetParameterFromGC.Response
-    ) -> SetParameterFromGC.Response:
-        self.get_logger().info("ConfigurationServer.set_parameter_from_gc_callback()")
-        
-        parameter_name = request.parameter_name
-
-        try:
-            parameter_dict = self.parameter_handler.get_param(parameter_name)
-        except KeyError as e:
-            response.success = False
-            response.message = "Parameter not listed in parameters file."
-            
-            return response
-        
-        if not (parameter_dict["type"] == "bool" or parameter_dict["type"] == "int" or parameter_dict["type"] == "float" or parameter_dict["type"] == "string"):
-            response.success = False
-            response.message = "Parameter type " + parameter_dict["type"] + " not supported."
-            
-            return response
-        
-        parameter_value = request.parameter_string_value
-        
-        if parameter_dict["type"] == "bool":
-            
-            if not str(parameter_value).lower() in ["true", "false"]:
-                response.success = False
-                response.message = "Invalid bool value."
-                
-                return response
-            
-            parameter_value = str(parameter_value).lower() == "true"
-            
-        elif parameter_dict["type"] == "int":
-            try:
-                parameter_value = int(parameter_value)
-            except ValueError as e:
-                response.success = False
-                response.message = "Invalid int value."
-                
-                return response
-            
-        elif parameter_dict["type"] == "float":
-            try:
-                parameter_value = float(parameter_value)
-            except ValueError as e:
-                response.success = False
-                response.message = "Invalid float value."
-                
-                return response
-            
-        elif parameter_dict["type"] == "string":
-            try:
-                parameter_value = str(parameter_value)
-            except ValueError as e:
-                response.success = False
-                response.message = "Invalid string value."
-                
-                return response
-            
-        try:
-            if "constant" in parameter_dict and parameter_dict["constant"]:
-                response.message = "Parameter " + parameter_name + " successfully set to " + str(parameter_value) + ", but change will only take place after restarting system."
-            else:
-                set_result: "list[rcl_msg.SetParametersResult]" = self.set_parameters([
-                    rclpy.parameter.Parameter(
-                        name=parameter_name,
-                        value=parameter_value
-                    )
-                ])
-
-                if not set_result[0].successful:
-                    response.success = False
-                    response.message = "Failed to set parameter: " + set_result[0].reason + "."
-                    
-                    return response
-
-                response.message = "Parameter " + parameter_name + " successfully set to " + str(parameter_value) + "."
-                
-            self.parameter_handler.set_param(
+            candidate_values = dict(self.server_values)
+            candidate_values[parameter_name] = value
+            self.native_core.validate_parameter_value(
                 parameter_name,
-                parameter_value,
+                value,
+                self._parameter_type(parameter_name),
+                self._candidate_parameter_map(candidate_values),
+                allow_constant_override,
+            )
+            self.native_core.validate_parameter_map(
+                self._candidate_parameter_map(candidate_values),
                 True,
-                force_constant=True
             )
+        except Exception as exc:
+            return False, str(exc)
 
-            self.declared_params[parameter_name] = parameter_value
-            self.parameters_initialized[parameter_name] = True
+        target_nodes = self._group_nodes_for_parameter(parameter_name)
+        if require_targets and not target_nodes:
+            return False, f"No running nodes currently declare '{parameter_name}'"
 
-            self.get_logger().info("ConfigurationServer.set_parameter_from_gc_callback(): " + response.message)
-            
-            response.success = True
-            
-            return response
-                
-        except Exception as e:
-            response.success = False
-            response.message = "Unknown error: " + str(e)
-            
-            return response
-        
-    def get_current_parameter_file_callback(
-        self,
-        request: GetCurrentParameterFile.Request,
-        response: GetCurrentParameterFile.Response
-    ) -> GetCurrentParameterFile.Response:
-        self.get_logger().debug("ConfigurationServer.get_current_parameter_file_callback()")
-        response.default_parameter_file = self.get_parameter("default_parameter_file").value
-        response.current_parameter_file = os.path.basename(self.params_file)
-        
+        previous_values = {node_fq_name: self.node_registry[node_fq_name].values.get(parameter_name) for node_fq_name in target_nodes}
+        successfully_updated_nodes: list[str] = []
+
+        for node_fq_name in target_nodes:
+            success, message = self._call_set_parameter(node_fq_name, parameter_name, value)
+            if not success:
+                for updated_node in successfully_updated_nodes:
+                    rollback_value = previous_values[updated_node]
+                    if rollback_value is not None:
+                        self._call_set_parameter(updated_node, parameter_name, rollback_value)
+                        self.node_registry[updated_node].values[parameter_name] = rollback_value
+                return False, f"{node_fq_name} rejected update: {message}"
+
+            successfully_updated_nodes.append(node_fq_name)
+            self.node_registry[node_fq_name].values[parameter_name] = value
+
+        self.parameter_handler.set_param(parameter_name, value, parameter_initialized=False, force_constant=True)
+        self.server_values[parameter_name] = value
+        return True, ""
+
+    def _serialize_current_yaml(self) -> str:
+        if self.parameter_handler is None:
+            return ""
+        return self.parameter_handler.get_parameters_yaml_string()
+
+    def _serialize_declared_parameters(self) -> str:
+        grouped = {
+            parameter_name: sorted(self._group_nodes_for_parameter(parameter_name))
+            for parameter_name in sorted(self.server_values.keys())
+            if self._group_nodes_for_parameter(parameter_name)
+        }
+        return yaml.dump(grouped, sort_keys=False)
+
+    def _load_snapshot_values(self, file_name: str) -> dict[str, object]:
+        path = self._snapshot_dir() / file_name
+        with open(path, "r") as file:
+            data = yaml.safe_load(file) or {}
+        ros_parameters = data.get("/**", {}).get("ros__parameters", {})
+        return {name: value for name, value in ros_parameters.items() if name in self.managed_keys}
+
+    def _write_snapshot_file(self, file_name: str, overwrite: bool) -> Path:
+        path = self._snapshot_dir() / file_name
+        if path.exists() and not overwrite:
+            raise FileExistsError(f"Snapshot file '{file_name}' already exists")
+
+        for parameter_name, node_fq_names in (
+            (name, self._group_nodes_for_parameter(name)) for name in sorted(self.server_values.keys())
+        ):
+            for node_fq_name in node_fq_names:
+                node_value = self.node_registry[node_fq_name].values.get(parameter_name)
+                if node_value != self.server_values[parameter_name]:
+                    raise RuntimeError(
+                        f"Refusing to save inconsistent parameter '{parameter_name}': "
+                        f"{node_fq_name} has {node_value!r}, server has {self.server_values[parameter_name]!r}"
+                    )
+
+        ros_parameters = {
+            parameter_name: self.server_values[parameter_name]
+            for parameter_name in sorted(self.server_values.keys())
+        }
+        with open(path, "w") as file:
+            yaml.safe_dump({"/**": {"ros__parameters": ros_parameters}}, file, sort_keys=False)
+        return path
+
+    def _set_default_snapshot_file(self, file_name: str) -> None:
+        use_sim = os.environ.get("SIMULATION", "false").lower() == "true"
+        parameter_name = "sim_snapshot_file" if use_sim else "default_snapshot_file"
+        if self.has_parameter(parameter_name):
+            self.set_parameters([rclpy.parameter.Parameter(parameter_name, value=file_name)])
+
+        ros_params_path = resolve_iii_config_dir() / (
+            "ros_params_sim.yaml" if use_sim else "ros_params_real.yaml"
+        )
+        if ros_params_path.exists():
+            with open(ros_params_path, "r") as file:
+                ros_params = yaml.safe_load(file) or {}
+            ros_params.setdefault("/**", {}).setdefault("ros__parameters", {})[parameter_name] = file_name
+            with open(ros_params_path, "w") as file:
+                yaml.safe_dump(ros_params, file, sort_keys=False)
+
+    def _load_default_snapshot_if_available(self) -> None:
+        snapshot_path = self._default_snapshot_path()
+        if not snapshot_path.exists():
+            return
+
+        values = self._load_snapshot_values(snapshot_path.name)
+        if self.native_core is None:
+            raise RuntimeError("Configuration server native core is not initialized")
+
+        self.native_core.validate_parameter_map(
+            self._candidate_parameter_map(values),
+            True,
+        )
+
+        for parameter_name, value in values.items():
+            self.parameter_handler.set_param(parameter_name, value, parameter_initialized=False, force_constant=True)
+            self.server_values[parameter_name] = value
+        self.current_parameter_file = snapshot_path.name
+
+    ############################################################################
+    # Compatibility services
+    ############################################################################
+
+    def declare_parameters_callback(self, request, response):
+        response.succeeded = False
+        response.message = "Remote parameter declaration is no longer supported"
+        response.values = []
         return response
-    
-    def set_current_parameter_file_as_default_callback(
-        self,
-        request: SetCurrentParameterFileAsDefault.Request,
-        response: SetCurrentParameterFileAsDefault.Response
-    ) -> SetCurrentParameterFileAsDefault.Response:
-        self.get_logger().debug("ConfigurationServer.set_current_parameter_file_as_default_callback()")
+
+    def undeclare_parameters_callback(self, request, response):
+        response.succeeded = False
+        response.message = "Remote parameter undeclaration is no longer supported"
+        return response
+
+    def get_parameter_yaml_callback(self, request, response):
+        response.yaml = self._serialize_current_yaml()
+        return response
+
+    def get_declared_parameters_callback(self, request, response):
+        response.declared_parameters_yaml = self._serialize_declared_parameters()
+        return response
+
+    def save_parameters_callback(self, request, response):
+        file_name = request.file or datetime.now().strftime("snapshot_%Y%m%d_%H%M%S.yaml")
         try:
-            self.set_default_parameter_file(os.path.basename(self.params_file))
-            
-            response.success = True
-            response.message = "Default parameter file set to " + os.path.basename(self.params_file) + "."
-            
-        except Exception as e:
+            saved_path = self._write_snapshot_file(file_name, request.overwrite)
+        except Exception as exc:
             response.success = False
-            response.message = "Failed to set default parameter file: " + str(e) + "."
-            
+            response.message = str(exc)
+            response.file = ""
+            return response
+
+        self.current_parameter_file = saved_path.name
+        if request.set_as_default:
+            self._set_default_snapshot_file(saved_path.name)
+
+        response.success = True
+        response.message = ""
+        response.file = saved_path.name
         return response
-    
-    def validate_parameter_file_name(
-        self,
-        file_name: str
-    ) -> bool:
-        """
-        Validates the parameter file name, checks that it is a yaml file.
 
-        Parameters:
-            file_name (str): File name.
+    def get_parameter_files_callback(self, request, response):
+        response.parameter_files = sorted(
+            file.name for file in self._snapshot_dir().glob("*.yaml") if file.is_file()
+        )
+        return response
 
-        Returns:
-            bool: True if the file name is valid, False otherwise.
-        """
+    def load_parameters_callback(self, request, response):
+        try:
+            values = self._load_snapshot_values(request.file)
+        except Exception as exc:
+            response.success = False
+            response.message = str(exc)
+            return response
 
-        self.get_logger().debug("ConfigurationServer.validate_parameter_file_name()")
-
-        if file_name[-5:] != ".yaml":
-            return False
-        
-        if file_name[0] == ".":
-            return False
-        
-        if "/" in file_name:
-            return False
-        
-        if "\\" in file_name:
-            return False
-        
-        if file_name == "":
-            return False
-        
-        return True
-    
-    def set_default_parameter_file(
-        self,
-        file: str
-    ) -> None:
-        """
-        Sets the default parameter file.
-
-        Parameters:
-            file (str): File name.
-        """
-
-        self.get_logger().debug("ConfigurationServer.set_default_parameter_file()")
-        
-        ros_params_lines = []
-
-        with open(self.ros_params_file, "r") as ros_params_file:
-            ros_params_lines = ros_params_file.readlines()
-            
-        for i in range(len(ros_params_lines)):
-            if not SIMULATION and "default_parameter_file" in ros_params_lines[i] or SIMULATION and "sim_parameter_file" in ros_params_lines[i]:
-                splitted_line = ros_params_lines[i].split(":")
-                splitted_line[1] = " " + f'"{file}"' + "\n"
-                ros_params_lines[i] = ":".join(splitted_line)
-                
-                break
-            
-        with open(self.ros_params_file, "w") as ros_params_file:
-            ros_params_file.writelines(ros_params_lines)
-            
-        self.set_parameters([
-            rclpy.parameter.Parameter(
-                name="default_parameter_file" if not SIMULATION else "sim_parameter_file",
-                value=file
+        applied: list[tuple[str, object]] = []
+        for parameter_name, value in values.items():
+            old_value = self.server_values.get(parameter_name)
+            success, message = self._apply_shared_parameter_update(
+                parameter_name,
+                value,
+                require_targets=False,
             )
-        ])
+            if not success:
+                for applied_name, old_value in reversed(applied):
+                    if old_value is not None:
+                        self._apply_shared_parameter_update(
+                            applied_name,
+                            old_value,
+                            require_targets=False,
+                        )
+                response.success = False
+                response.message = message
+                return response
+            applied.append((parameter_name, old_value))
 
-    def _string_to_parameter_type(
-        self,
-        param_type: str
-    ) -> rcl_msg.ParameterType:
-        """
-        Converts a string to a ParameterType.
-        
-        Parameters:
-            param_type (str): Parameter type as a string.
-            
-        Returns:
-            ParameterType: Parameter type.
-            
-        Raises:
-            ValueError: If the parameter type is not recognized.
-            
-        """
-        
-        if param_type == "string":
-            return rcl_msg.ParameterType.PARAMETER_STRING
-        
-        elif param_type == "int":
-            return rcl_msg.ParameterType.PARAMETER_INTEGER
-        
-        elif param_type == "float":
-            return rcl_msg.ParameterType.PARAMETER_DOUBLE
-        
-        elif param_type == "bool":
-            return rcl_msg.ParameterType.PARAMETER_BOOL
-        
-        elif param_type == "string_array":
-            return rcl_msg.ParameterType.PARAMETER_STRING_ARRAY
-        
-        elif param_type == "int_array":
-            return rcl_msg.ParameterType.PARAMETER_INTEGER_ARRAY
-        
-        elif param_type == "float_array":
-            return rcl_msg.ParameterType.PARAMETER_DOUBLE_ARRAY
-        
-        elif param_type == "bool_array":
-            return rcl_msg.ParameterType.PARAMETER_BOOL_ARRAY
-        
-        else:
-            raise ValueError("Type " + param_type + " not recognized.")
+        self.current_parameter_file = request.file
+        if request.set_as_default:
+            self._set_default_snapshot_file(request.file)
 
-    def _set_parameter_value(
-        self,
-        parameter_value: rcl_msg.ParameterValue,
-        value: str|int|float|bool|list[str|int|float|bool]
-    ) -> rcl_msg.ParameterValue:
-        """
-        Sets the parameter value based on the type.
+        response.success = True
+        response.message = ""
+        return response
 
-        Parameters:
-            parameter_value (ParameterValue): Parameter value.
-            value (str|int|float|bool|list[str|int|float|bool]): Value to set.
+    def set_parameter_from_gc_callback(self, request, response):
+        try:
+            cast_value = self.parameter_handler.cast_param_value(request.parameter_name, request.parameter_string_value)
+        except Exception as exc:
+            response.success = False
+            response.message = str(exc)
+            return response
 
-        Returns:
-            ParameterValue: Parameter value.
-            
-        Raises:
-            ValueError: If the parameter type is not recognized
-        """
+        success, message = self._apply_shared_parameter_update(request.parameter_name, cast_value, require_targets=True)
+        response.success = success
+        response.message = message
+        return response
 
-        if parameter_value.type == rcl_msg.ParameterType.PARAMETER_STRING:
-            parameter_value.string_value = str(value)
-            
-        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_INTEGER:
-            parameter_value.integer_value = int(value)
-            
-        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_DOUBLE:
-            parameter_value.double_value = float(value)
-            
-        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_BOOL:
-            parameter_value.bool_value = bool(value)
-            
-        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_STRING_ARRAY:
-            parameter_value.string_array_value = value
-            
-        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_INTEGER_ARRAY:
-            parameter_value.integer_array_value = value
-            
-        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_DOUBLE_ARRAY:
-            parameter_value.double_array_value = value
-            
-        elif parameter_value.type == rcl_msg.ParameterType.PARAMETER_BOOL_ARRAY:
-            parameter_value.bool_array_value = value
-        
-        else:
-            raise ValueError("Type " + str(parameter_value.type) + " not recognized.")
+    def get_current_parameter_file_callback(self, request, response):
+        response.current_parameter_file = self.current_parameter_file
+        response.default_parameter_file = self._default_snapshot_file_name()
+        return response
 
-        return parameter_value
+    def set_current_parameter_file_as_default_callback(self, request, response):
+        self._set_default_snapshot_file(self.current_parameter_file)
+        response.success = True
+        response.message = ""
+        return response
 
-###############################################################################
-# Main
-###############################################################################
 
-def main():
-    if SIMULATION:
-        DEBUG_PORT = int(os.environ.get('CONFIGURATION_SERVER_DEBUG_PORT', 0))
-        
-        if DEBUG_PORT > 0:
-            debugpy.listen(
-                (
-                    'localhost',
-                    DEBUG_PORT
-                )
-            )
-            
-            print("Listening for debugger on port " + str(DEBUG_PORT))
-
-    rclpy.init(args=sys.argv)
-
-    print("Starting ConfigurationServer node...")
+def main(args=None):
+    rclpy.init(args=args)
     node = ConfigurationServer()
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(node)
 
     try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException, rclpy.exceptions.ROSInterruptException):
-        
+        node.trigger_configure()
+        node.trigger_activate()
+        executor.spin()
+    finally:
+        executor.shutdown()
+        node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
 
 if __name__ == "__main__":
     main()
