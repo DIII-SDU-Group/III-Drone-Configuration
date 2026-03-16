@@ -42,17 +42,19 @@ Configurator<nodeT>::Configurator(
         rclcpp::NodeOptions().use_intra_process_comms(true)
     );
 
+    const auto services_qos = rclcpp::ServicesQoS().get_rmw_qos_profile();
+
     declare_parameters_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::DeclareParameters>(
         "/configuration/configuration_server/declare_parameters",
-        rclcpp::ServicesQoS()
+        services_qos
     );
     undeclare_parameters_client_ = configurator_node_->create_client<iii_drone_interfaces::srv::UndeclareParameters>(
         "/configuration/configuration_server/undeclare_parameters",
-        rclcpp::ServicesQoS()
+        services_qos
     );
     get_parameters_client_ = configurator_node_->create_client<rcl_interfaces::srv::GetParameters>(
         "/configuration/configuration_server/configuration_server/get_parameters",
-        rclcpp::ServicesQoS()
+        services_qos
     );
 
     parameter_events_subscriber_ = node_->template create_subscription<rcl_interfaces::msg::ParameterEvent>(
