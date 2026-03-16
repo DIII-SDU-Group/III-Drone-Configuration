@@ -62,6 +62,14 @@ if(NOT yaml-cpp_FOUND)
   endif()
 endif()
 
+if(TARGET yaml-cpp::yaml-cpp)
+  set(III_DRONE_CONFIGURATION_YAML_CPP_TARGET yaml-cpp::yaml-cpp)
+elseif(TARGET yaml-cpp)
+  set(III_DRONE_CONFIGURATION_YAML_CPP_TARGET yaml-cpp)
+else()
+  message(FATAL_ERROR "yaml-cpp target not found")
+endif()
+
 # Library files:
 set(III_DRONE_CONFIGURATION_LIBRARY_HEADERS
   "${PROJECT_SOURCE_DIR}/include/iii_drone_configuration/configurator.hpp"
@@ -96,7 +104,7 @@ target_include_directories(iii_drone_configuration_lib
 )
 
 target_link_libraries(iii_drone_configuration_lib
-  yaml-cpp::yaml-cpp
+  ${III_DRONE_CONFIGURATION_YAML_CPP_TARGET}
 )
 
 ament_target_dependencies(iii_drone_configuration_lib
