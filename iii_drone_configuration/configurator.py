@@ -1,680 +1,255 @@
-
 ###############################################################################
 # Imports
 ###############################################################################
 
-import rcl_interfaces.msg
-import rclpy.parameter
-from .parameter_bundle import ParameterBundle, ParameterBundleEntry
+from __future__ import annotations
 
-from iii_drone_interfaces.srv import DeclareParameters
-from iii_drone_interfaces.srv import UndeclareParameters
+from threading import Lock
+from typing import Callable, Dict, List, Optional
 
 import rclpy
 from rclpy import lifecycle
-# from rclpy.parameter import Parameter, ParameterType
 from rclpy.qos import QoSProfile
+from rcl_interfaces.msg import ParameterEvent, SetParametersResult
+from std_msgs.msg import String
 
-from rcl_interfaces.msg import ParameterEvent, SetParametersResult, ParameterValue, Parameter
-import rcl_interfaces
-from rcl_interfaces.srv import GetParameters
+from .configuration import Configuration, ConfigurationEntry
+from .schema_utils import resolve_schema_file
 
-from typing import Any, Callable, Dict, List, Optional
-from threading import Event, Lock, Thread
-import time
-import yaml
-import os
 
 ###############################################################################
 # Class
 ###############################################################################
 
+
 class Configurator:
+    @staticmethod
+    def _parameter_type_value(parameter_type: rclpy.parameter.Parameter.Type | int) -> int:
+        return parameter_type.value if hasattr(parameter_type, "value") else int(parameter_type)
+
     def __init__(
-        self, 
-        node: lifecycle.Node|rclpy.node.Node, 
-        after_parameter_change_callback: Optional[Callable[[rclpy.parameter.Parameter], None]] = None, 
-        qos: QoSProfile = QoSProfile(depth=10)
+        self,
+        node: lifecycle.Node | rclpy.node.Node,
+        after_parameter_change_callback: Optional[Callable[[rclpy.parameter.Parameter], None]] = None,
+        qos: QoSProfile = QoSProfile(depth=10),
     ):
         self.node = node
-        
-        self.configurator_node = rclpy.create_node(
-            'configurator_node',
-            namespace=self.node.get_namespace()
-        )
-        self._configurator_executor = rclpy.executors.SingleThreadedExecutor()
-        self._configurator_executor.add_node(self.configurator_node)
-        self._configurator_executor_stop_event = Event()
-        self._configurator_executor_thread = Thread(
-            target=self._spin_configurator_node,
-            name=f"{self.node.get_name()}_configurator_executor",
-            daemon=True
-        )
-        self._configurator_executor_thread.start()
-        
         self.after_parameter_change_callback = after_parameter_change_callback
         self.qos = qos
-        self.parameter_bundles: List[ParameterBundle] = []
-        self.parameters: List[rclpy.parameter.Parameter] = []
-        self.parameter_name_map = {}
+        self.configurations: List[Configuration] = []
         self.parameters_mutex = Lock()
+        self._managed_parameter_names: List[str] = []
+        self.is_cleaned_up = False
+        self._managed_node_announced = False
 
-        self._initialized: bool = False
+        self._declare_support_parameter_if_missing("parameters_path_postfix", "parameters/")
+        self._declare_support_parameter_if_missing("default_parameter_file", "parameter_manifest.yaml")
+        self._declare_support_parameter_if_missing("sim_parameter_file", "parameter_manifest.yaml")
+
+        self.schema_file_path = resolve_schema_file(
+            parameters_path_postfix=str(self.node.get_parameter("parameters_path_postfix").value),
+            default_parameter_file=str(self.node.get_parameter("default_parameter_file").value),
+            sim_parameter_file=str(self.node.get_parameter("sim_parameter_file").value),
+        )
+        try:
+            from ._native import NativeConfiguratorCore
+        except ImportError as exc:
+            raise ImportError(
+                "iii_drone_configuration native bindings are not available. "
+                "Build the iii_drone_configuration package before using the Python Configurator."
+            ) from exc
+        self._native_core = NativeConfiguratorCore(str(self.schema_file_path))
 
         self.parameter_events_subscriber = self.node.create_subscription(
             ParameterEvent,
-            '/parameter_events',
+            "/parameter_events",
             self.parameter_event_callback,
-            self.qos
+            self.qos,
         )
-        
-        self.declare_parameters_client = self.configurator_node.create_client(
-            DeclareParameters, 
-            '/configuration/configuration_server/declare_parameters',
+        self._on_set_callback_handle = self.node.add_on_set_parameters_callback(self.on_set_parameters_callback)
+        self._announcement_publisher = self.node.create_publisher(
+            String,
+            "/configuration/configuration_server/managed_node_available",
+            10,
         )
-        self.undeclare_parameters_client = self.configurator_node.create_client(
-            UndeclareParameters, 
-            '/configuration/configuration_server/undeclare_parameters',
-        )
-        
-        self.get_parameters_client = self.configurator_node.create_client(
-            GetParameters,
-            '/configuration/configuration_server/configuration_server/get_parameters',
-        )
-        
-        if (not self.node.has_parameter("node_parameters_path_postfix")):
-            self.node.declare_parameter("node_parameters_path_postfix", "node_parameters/")
-            
-        self.config_base_dir = os.getenv("CONFIG_BASE_DIR")
-        
-        if (self.config_base_dir is None):
-            self.config_base_dir = os.path.join(os.path.expanduser("~"), ".config")
-            
-        self.parameter_yaml_path = os.path.join(
-            self.config_base_dir,
-            "iii_drone",
-            str(self.node.get_parameter("node_parameters_path_postfix").value)
-        )
-        
-        # Expand ~ in path
-        self.parameter_yaml_path = os.path.expanduser(self.parameter_yaml_path)
-        
-        self.parameter_yaml_path = os.path.join(
-            self.parameter_yaml_path,
-            self.node.get_name() + ".yaml"
-        )
-        
-        self.initialize(self.parameter_yaml_path)
 
-        self.is_cleaned_up = False
+    def _declare_support_parameter_if_missing(self, name: str, default_value: str) -> None:
+        if not self.node.has_parameter(name):
+            self.node.declare_parameter(name, default_value)
 
-    def _wait_for_future(
-        self,
-        future,
-        timeout_sec: Optional[float] = 5.0
-    ) -> None:
-        """
-            Wait for a service future to complete.
-            The configurator node is serviced by its own executor thread.
-        """
-        if future.done():
+    def _announce_managed_node(self) -> None:
+        if not self._managed_parameter_names:
             return
+        msg = String()
+        msg.data = self.node.get_fully_qualified_name()
+        self._announcement_publisher.publish(msg)
+        self._managed_node_announced = True
 
-        done_event = Event()
-        future.add_done_callback(lambda _: done_event.set())
+    def _current_managed_parameter_values(self) -> Dict[str, object]:
+        values: Dict[str, object] = {}
+        for parameter_name in self._managed_parameter_names:
+            values[parameter_name] = self.node.get_parameter(parameter_name).value
+        return values
 
-        deadline = None if timeout_sec is None else (time.monotonic() + timeout_sec)
-
-        while rclpy.ok() and not future.done():
-            if deadline is not None:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0.0:
-                    break
-                done_event.wait(timeout=min(0.05, remaining))
-            else:
-                done_event.wait(timeout=0.05)
-
-        if not future.done():
-            raise TimeoutError("Timed out waiting for service response")
-
-    def _spin_configurator_node(self) -> None:
-        while (not self._configurator_executor_stop_event.is_set()) and rclpy.ok():
-            self._configurator_executor.spin_once(timeout_sec=0.1)
-
-    # Destructor
     def cleanup(self):
         if self.is_cleaned_up:
             return
-        
-        if rclpy.ok():
-            self.node.get_logger().debug("Configurator.cleanup")
 
-        self._configurator_executor_stop_event.set()
-        if self._configurator_executor_thread.is_alive():
-            self._configurator_executor_thread.join(timeout=1.0)
-        
-        # self.parameter_events_subscriber.destroy()
-        self.node.destroy_subscription(self.parameter_events_subscriber)
-        self.parameter_events_subscriber = None
-        
-        self.parameter_bundles.clear()
-        
-        if rclpy.ok():
-            self.undeclare_parameters()
-            
-            self.node.get_logger().debug("Configurator.cleanup: Parameters undeclared")
+        if self.parameter_events_subscriber is not None:
+            self.node.destroy_subscription(self.parameter_events_subscriber)
+            self.parameter_events_subscriber = None
 
-        self.configurator_node.destroy_client(self.declare_parameters_client)
-        self.declare_parameters_client = None
-        self.configurator_node.destroy_client(self.undeclare_parameters_client)
-        self.undeclare_parameters_client = None
-        self.configurator_node.destroy_client(self.get_parameters_client)
-        self.get_parameters_client = None
+        if self._announcement_publisher is not None:
+            self.node.destroy_publisher(self._announcement_publisher)
+            self._announcement_publisher = None
 
-        self._configurator_executor.remove_node(self.configurator_node)
-        self._configurator_executor.shutdown(timeout_sec=1.0)
-        self._configurator_executor = None
-
-        self.configurator_node.destroy_node()
-        self.configurator_node = None
-        
-        self.node.get_logger().debug("Configurator.cleanup: Done")
-        
+        self.configurations.clear()
+        self._managed_parameter_names.clear()
+        self._native_core = None
         self.node = None
-
         self.is_cleaned_up = True
 
-    def get_parameter(
-        self, 
-        simple_name: str
-    ) -> rclpy.parameter.Parameter:
-        return self.get_parameters([simple_name])[0]
+    def get_parameter(self, parameter_full_name: str) -> rclpy.parameter.Parameter:
+        return self.get_parameters([parameter_full_name])[0]
 
-    def get_parameters(
-        self, 
-        simple_names: List[str]
-    ) -> List[rclpy.parameter.Parameter]:
+    def get_parameters(self, parameter_full_names: List[str]) -> List[rclpy.parameter.Parameter]:
         with self.parameters_mutex:
-            parameters = []
-            
-            for simple_name in simple_names:
-                full_name = self.getParameterFullName(simple_name)
-                
-                for param in self.parameters:
-                    if (param.name == full_name):
-                        parameters.append(param)
-                        break
-                    
-            if len(parameters) != len(simple_names):
-                fatal_msg = "Configurator.get_parameters: Some parameters were not found"
-                
-                self.node.get_logger().fatal(fatal_msg)
-                
-                raise RuntimeError(fatal_msg)
-            
-            return parameters
-        
-    def get_parameter_bundle(
-        self,
-        bundle_name: str
-    ) -> ParameterBundle:
-        
-        for bundle in self.parameter_bundles:
-            if (bundle.name == bundle_name):
-                return bundle
-            
-        fatal_msg = f"Configurator.get_parameter_bundle: Parameter bundle '{bundle_name}' not found"
-        
-        self.node.get_logger().fatal(fatal_msg)
-        
-        raise RuntimeError(fatal_msg)
+            return [self.node.get_parameter(parameter_full_name) for parameter_full_name in parameter_full_names]
 
-    def sync_parameters(
-        self, 
-        simple_names: List[str] = []
-    ):
-        with self.parameters_mutex:
-            names_to_sync = []
-            
-            if (len(simple_names) == 0):
-                for param in self.parameters:
-                    param: Parameter
-                    names_to_sync.append(param.name)
-                    
-            else:
-                for simple_name in simple_names:
-                    names_to_sync.append(self.getParameterFullName(simple_name))
-                    
-            success, parameters = self.send_get_parameters_request(names_to_sync)
-            
-            if not success:
-                fatal_msg = "Configurator.sync_parameters: Failed to sync parameters"
-                
-                self.node.get_logger().fatal(fatal_msg)
-                
-                raise RuntimeError(fatal_msg)
+    def get_configuration(self, configuration_name: str) -> Configuration:
+        for configuration in self.configurations:
+            if configuration.name == configuration_name:
+                return configuration
+        raise RuntimeError(f"Configurator.get_configuration: Configuration '{configuration_name}' not found")
 
-            for param in parameters:
-                simple_name = self.get_parameter_simple_name(param.name)
-                
-                for bundle in self.parameter_bundles:
-                    if bundle.has_updatable_parameter(simple_name):
-                        bundle.set_parameter(
-                            simple_name, 
-                            param
-                        )
-                        
-                for i in range(len(self.parameters)):
-                    if (self.parameters[i].name == param.name):
-                        self.parameters[i] = param
-                        break
-            
+    def create_configuration(self, configuration_name: str, entries: List[ConfigurationEntry]) -> Configuration:
+        configuration = Configuration(
+            native_configuration=self._native_core.create_configuration(
+                configuration_name,
+                [(entry.full_name, self._parameter_type_value(entry.parameter_type)) for entry in entries],
+            ),
+            parameter_getter=lambda full_name: self.node.get_parameter(full_name),
+        )
+        self.configurations.append(configuration)
+        return configuration
+
     @staticmethod
-    def get_parameter_type_string(T: rclpy.parameter.ParameterType) -> str:
-        if T == rclpy.parameter.ParameterType.PARAMETER_BOOL:
-            return "bool"
-        
-        if T == rclpy.parameter.ParameterType.PARAMETER_INTEGER:
-            return "int"
-        
-        if T == rclpy.parameter.ParameterType.PARAMETER_DOUBLE:
-            return "float"
-        
-        if T == rclpy.parameter.ParameterType.PARAMETER_STRING:
-            return "string"
-        
-        if T == rclpy.parameter.ParameterType.PARAMETER_BOOL_ARRAY:
-            return "bool_array"
-        
-        if T == rclpy.parameter.ParameterType.PARAMETER_INTEGER_ARRAY:
-            return "int_array"
-        
-        if T == rclpy.parameter.ParameterType.PARAMETER_DOUBLE_ARRAY:
-            return "float_array"
-        
-        if T == rclpy.parameter.ParameterType.PARAMETER_STRING_ARRAY:
-            return "string_array"
-        
-        fatal_msg = f"Configurator.get_parameter_type_string: Unsupported type '{T}'"
-        
-        raise RuntimeError(fatal_msg)
-    
+    def get_parameter_type_string(T: rclpy.parameter.Parameter.Type) -> str:
+        from ._native import NativeConfiguratorCore
+        return NativeConfiguratorCore.get_parameter_type_string(Configurator._parameter_type_value(T))
+
     @staticmethod
-    def get_parameter_type_from_string(parameter_type_string: str) -> rclpy.parameter.ParameterType:
-        if parameter_type_string == "bool":
-            return rclpy.parameter.ParameterType.PARAMETER_BOOL
-        
-        if parameter_type_string == "int":
-            return rclpy.parameter.ParameterType.PARAMETER_INTEGER
-        
-        if parameter_type_string == "float":
-            return rclpy.parameter.ParameterType.PARAMETER_DOUBLE
-        
-        if parameter_type_string == "string":
-            return rclpy.parameter.ParameterType.PARAMETER_STRING
-        
-        if parameter_type_string == "bool_array":
-            return rclpy.parameter.ParameterType.PARAMETER_BOOL_ARRAY
-        
-        if parameter_type_string == "int_array":
-            return rclpy.parameter.ParameterType.PARAMETER_INTEGER_ARRAY
-        
-        if parameter_type_string == "float_array":
-            return rclpy.parameter.ParameterType.PARAMETER_DOUBLE_ARRAY
-        
-        if parameter_type_string == "string_array":
-            return rclpy.parameter.ParameterType.PARAMETER_STRING_ARRAY
-        
-        fatal_msg = f"Configurator.get_parameter_type_from_string: Unsupported type '{parameter_type_string}'"
-        
-        raise RuntimeError(fatal_msg)
+    def get_parameter_type_from_string(parameter_type_string: str) -> rclpy.parameter.Parameter.Type:
+        from ._native import NativeConfiguratorCore
+        return rclpy.parameter.Parameter.Type(NativeConfiguratorCore.get_parameter_type_from_string(parameter_type_string))
 
     def print_parameters(self):
-        with self.parameters_mutex:
-            for param in self.parameters:
-                self.node.get_logger().info(f"Parameter: {param.name} = {param.value}")
+        for param_name in self._managed_parameter_names:
+            param = self.node.get_parameter(param_name)
+            self.node.get_logger().info(f"Parameter: {param.name} = {param.value}")
 
-    def print_parameter_bundles(self):
-        for bundle in self.parameter_bundles:
-            self.node.get_logger().info(f"Parameter Bundle: {bundle.name}")
+    def print_configurations(self):
+        for configuration in self.configurations:
+            self.node.get_logger().info(f"Configuration: {configuration.name}")
 
-    def initialize(
-        self,
-        parameter_yaml_path: str
-    ):
-        if self._initialized:
-            fatal_msg = "Configurator.initialize: Already initialized"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        self.node.get_logger().debug(f"Configurator.initialize(): Declaring parameters from '{parameter_yaml_path}'")
-        
-        with open(parameter_yaml_path, 'r') as file:
-            config = yaml.safe_load(file)
-            
-        parameters = config.get("parameters")
-        
-        if parameters is None:
-            fatal_msg = "Configurator.initialize: No parameters found in config file"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-            
-        self.initialize_parameters(parameters)
-        
-        parameters_bundles = config.get("parameter_bundles")
-        
-        if parameters_bundles is not None:
-            self.initialize_parameter_bundles(parameters_bundles)
-
-        self._initialized = True
-    
-    def initialize_parameters(
-        self,
-        parameters: dict[str,str]
-    ):
-        parameter_name_map_temp: Dict[str, str] = {}
-        
-        names: List[str] = []
-        types: List[rclpy.parameter.ParameterType] = []
-        
-        for simple_name, param in parameters.items():
-            name = param["name"]
-            type_str = param["type"]
-            
-            param_type: rclpy.parameter.ParameterType = self.get_parameter_type_from_string(type_str)
-            
-            names.append(name)
-            types.append(param_type)
-            
-            parameter_name_map_temp[simple_name] = name
-            
-        self.declare_parameters(
-            names,
-            types
+    def validate(self):
+        current_values = self._current_managed_parameter_values()
+        if not current_values:
+            return
+        self._native_core.validate_parameter_map(
+            {
+                name: {"type": self._parameter_type_value(self.node.get_parameter(name).type_), "value": value}
+                for name, value in current_values.items()
+            },
+            True,
         )
-        
-        self.parameter_name_map = parameter_name_map_temp
-    
-    def initialize_parameter_bundles(
+        if not self._managed_node_announced:
+            self._announce_managed_node()
+
+    def declare_parameter(
         self,
-        parameter_bundles: dict[str,dict[str,str]]
-    ):
-        for bundle_name, bundle in parameter_bundles.items():
-            bundle_entries = []
-            
-            for simple_name, param in bundle.items():
-                remap_name = param["remap_name"]
-                updatable = param["update"]
-                
-                bundle_entries.append(
-                    ParameterBundleEntry(
-                        simple_name=simple_name,
-                        update=updatable,
-                        remap_name=remap_name,
-                        parameter=self.get_parameter(simple_name)
-                    )
-                )
-                
-            self.parameter_bundles.append(
-                ParameterBundle(
-                    name=bundle_name,
-                    parameter_bundle_entries=bundle_entries
-                )
-            )
-    
+        parameter_full_name: str,
+        parameter_type: rclpy.parameter.Parameter.Type,
+    ) -> None:
+        self.declare_parameters([parameter_full_name], [parameter_type])
+
     def declare_parameters(
         self,
         parameter_full_names: List[str],
-        parameter_types: List[rclpy.parameter.ParameterType]
-    ):
-        self.node.get_logger().debug(f"Configurator.declare_parameter: Declaring parameters")
-        
-        types: List[str] = []
-        
-        for param_type in parameter_types:
-            types.append(
-                self.get_parameter_type_string(param_type)
-            )
-            
-        success: bool = True
-        parameters: List[rclpy.parameter.Parameter] = []
-        message: str = ""
-            
-        success, parameters, message = self.send_declare_parameters_request(
-            parameter_full_names,
-            types
-        )
-        
-        if not success:
-            fatal_msg = f"Configurator.declare_parameter: Failed to declare parameters with error message: {message}"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        with self.parameters_mutex:
-            for param in parameters:
-                self.parameters.append(param)
-    
-    def undeclare_parameters(self) -> bool:
-        self.node.get_logger().debug(f"Configurator.undeclare_parameters: Undeclaring parameters.")
-        
-        success, message = self.send_undeclare_parameters_request()
-        
-        if not success:
-            warn_msg = f"Configurator.undeclare_parameters: Failed to undeclare parameters with server."
-            
-            self.node.get_logger().warn(warn_msg)
-        
-        with self.parameters_mutex:
-            # for i in range(len(self.parameters)):
-            #     if (self.parameters[i].name == parameter_full_name):
-            #         self.node.get_logger().debug(f"Configurator.undeclare_parameters: Removing parameter '{parameter_full_name}'")
-            #         del self.parameters[i]
-            #         break
-            self.parameters.clear()
-                
-        self.node.get_logger().debug(f"Configurator.undeclare_parameters: Parameters undeclared")
-    
-    def getParameterFullName(
-        self,
-        parameter_simple_name: str
-    ) -> str:
+        parameter_types: List[rclpy.parameter.Parameter.Type],
+    ) -> None:
+        if len(parameter_full_names) != len(parameter_types):
+            raise RuntimeError("Configurator.declare_parameters: names/types size mismatch")
 
-        full_name = self.parameter_name_map[parameter_simple_name]
-        
-        return full_name
-    
-    def get_parameter_simple_name(
-        self,
-        parameter_full_name: str
-    ) -> str:
-        for simple_name, full_name in self.parameter_name_map.items():
-            if (full_name == parameter_full_name):
-                return simple_name
-            
-        fatal_msg = f"Configurator.get_parameter_simple_name: Parameter '{parameter_full_name}' not found"
-        
-        self.node.get_logger().fatal(fatal_msg)
-        
-        raise RuntimeError(fatal_msg)
+        with self.parameters_mutex:
+            default_values = self._native_core.declare_parameters(
+                parameter_full_names,
+                [self._parameter_type_value(parameter_type) for parameter_type in parameter_types],
+            )
+
+            for name, default_value in zip(parameter_full_names, default_values):
+                if not self.node.has_parameter(name):
+                    self.node.declare_parameter(name, default_value)
+
+                if name not in self._managed_parameter_names:
+                    self._managed_parameter_names.append(name)
 
     def parameter_event_callback(self, parameter_event: ParameterEvent):
-        # Handle parameter event
-        with self.parameters_mutex:
-            for param in parameter_event.changed_parameters:
-                for i in range(len(self.parameters)):
-                    if (self.parameters[i].name == param.name):
-                        self.parameters[i] = param
-                        simple_name = self.get_parameter_simple_name(param.name)
-                        
-                        for bundle in self.parameter_bundles:
-                            if bundle.has_updatable_parameter(simple_name):
-                                bundle.set_parameter(
-                                    simple_name, 
-                                    param
-                                )
-                                break
-                            
-                        if self.after_parameter_change_callback is not None:
-                            self.after_parameter_change_callback(param)
-                            
-                        break
+        if parameter_event.node != self.node.get_fully_qualified_name():
+            return
 
-    def send_declare_parameters_request(
-        self, 
-        names: List[str],
-        types: List[str]
-    ) -> tuple[bool, List[rclpy.parameter.Parameter], str]:
-        request = DeclareParameters.Request()
-        
-        request.names = names
-        request.types = types
-        request.node_name = self.node.get_name()
+        if self.after_parameter_change_callback is None:
+            return
 
-        if not self.declare_parameters_client.wait_for_service(timeout_sec=5.0):
-            fatal_msg = "Configurator.send_declare_parameters_request: Service not available"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        if not self.declare_parameters_client.service_is_ready():
-            fatal_msg = "Configurator.send_declare_parameters_request: Service not ready"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        future = self.declare_parameters_client.call_async(request)
-        self._wait_for_future(future, timeout_sec=5.0)
-        
-        result: DeclareParameters.Response = future.result()
+        for parameter_msg in parameter_event.changed_parameters:
+            if parameter_msg.name in self._managed_parameter_names:
+                self.after_parameter_change_callback(rclpy.parameter.Parameter.from_parameter_msg(parameter_msg))
 
-        if result is None:
-            fatal_msg = "Configurator.send_declare_parameters_request: Service call failed"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
+    def on_set_parameters_callback(
+        self,
+        parameters: List[rclpy.parameter.Parameter],
+    ) -> SetParametersResult:
+        result = SetParametersResult(successful=True)
+        candidate_values = self._current_managed_parameter_values()
+        candidate_types = {
+            name: self._parameter_type_value(self.node.get_parameter(name).type_)
+            for name in self._managed_parameter_names
+            if self.node.has_parameter(name)
+        }
 
-        if len(result.values) != len(names) and result.succeeded:
-            fatal_msg = "Configurator.send_declare_parameters_request: Number of received parameters does not match request"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        parameters: List[rclpy.parameter.Parameter] = []
-        
-        if result.succeeded:
-            for i, param_msg in enumerate(result.values):
-                param_msg = rcl_interfaces.msg.Parameter()
-                param_msg.name = names[i]
-                param_msg.value = result.values[i]
-                
-                param = rclpy.parameter.Parameter.from_parameter_msg(param_msg)
-                
-                parameters.append(param)
-        
-        return result.succeeded, parameters, result.message
-        
-    def send_undeclare_parameters_request(self) -> tuple[bool, str]:
-        request = UndeclareParameters.Request()
-        
-        request.node_name = self.node.get_name()
-        
-        if not self.undeclare_parameters_client.wait_for_service(timeout_sec=5.0):
-            warn_msg = "Configurator.send_undeclare_parameters_request: Service not available"
-            
-            self.node.get_logger().fatal(warn_msg)
-            
-            return False, warn_msg
-        
-        if not self.undeclare_parameters_client.service_is_ready():
-            fatal_msg = "Configurator.send_undeclare_parameters_request: Service not ready"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        future = self.undeclare_parameters_client.call_async(request)
-        self._wait_for_future(future, timeout_sec=5.0)
-        
-        result: UndeclareParameters.Response = future.result()
-        
-        if result is None:
-            fatal_msg = "Configurator.send_undeclare_parameters_request: Service call failed"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        return result.succeeded, result.message
+        for parameter in parameters:
+            if parameter.name not in self._managed_parameter_names:
+                continue
 
-    def send_get_parameter_request(
-        self, 
-        full_name: str
-    ) -> tuple[bool, Parameter]:
-        
-        names = [full_name]
-        
-        success, parameters = self.send_get_parameters_request(names)
-        
-        return success, parameters[0]
+            try:
+                candidate_values[parameter.name] = parameter.value
+                candidate_types[parameter.name] = self._parameter_type_value(parameter.type_)
+                self._native_core.validate_parameter_value(
+                    parameter.name,
+                    parameter.value,
+                    self._parameter_type_value(parameter.type_),
+                    {
+                        name: {"type": candidate_types[name], "value": candidate_values[name]}
+                        for name in candidate_values
+                    },
+                    False,
+                )
+            except Exception as exc:
+                result.successful = False
+                result.reason = str(exc)
+                return result
 
-    def send_get_parameters_request(
-        self, 
-        names: List[str]
-    ) -> tuple[bool, List[Parameter]]:
-
-        request = GetParameters.Request()
-        
-        request.names = names
-
-        if not self.get_parameters_client.wait_for_service(timeout_sec=5.0):
-            fatal_msg = "Configurator.send_get_parameters_request: Service not available"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        if not self.get_parameters_client.service_is_ready():
-            fatal_msg = "Configurator.send_get_parameters_request: Service not ready"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        future = self.get_parameters_client.call_async(request)
-        self._wait_for_future(future, timeout_sec=5.0)
-        
-        result: GetParameters.Response = future.result()
-        
-        if result is None:
-            fatal_msg = "Configurator.send_get_parameters_request: Service call failed"
-            
-            self.node.get_logger().fatal(fatal_msg)
-            
-            raise RuntimeError(fatal_msg)
-        
-        parameters = []
-        
-        for i, value in enumerate(result.values):
-            value: ParameterValue
-            
-            param_msg = rcl_interfaces.msg.Parameter()
-            param_msg.name = names[i]
-            param_msg.value = value
-            
-            param = Parameter.from_parameter_msg(param_msg)
-            
-            parameters.append(
-                param
+        try:
+            self._native_core.validate_parameter_map(
+                {
+                    name: {"type": candidate_types[name], "value": candidate_values[name]}
+                    for name in candidate_values
+                },
+                True,
             )
-        
-        return True, parameters
+        except Exception as exc:
+            result.successful = False
+            result.reason = str(exc)
+            return result
+
+        return result

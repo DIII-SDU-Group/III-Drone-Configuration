@@ -1,8 +1,0 @@
-parameters:
-  depth_cam_frame_id:
-    name: "/tf/sim/depth_cam_frame_id"
-    type: "string"
-  mmwave_frame_id:
-    name: "/tf/mmwave_frame_id"
-    type: "string"
-  

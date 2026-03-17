@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR=$(dirname $0)
 CONFIG_DIR=$(cd $SCRIPT_DIR/../config && pwd)
 
-$SCRIPT_DIR/update_installed_parameters.py $CONFIG_DIR/parameters/parameters.yaml $CONFIG_DIR/parameters
+$SCRIPT_DIR/update_installed_parameters.py $CONFIG_DIR/parameters/parameter_manifest.yaml $CONFIG_DIR/parameters
 
 # Get target config dir from the first argument
 if [ -n "$1" ]; then
@@ -17,19 +17,16 @@ fi
 
 mkdir -p $target_config_dir/iii_drone/parameters/
 
-if [ ! -f $target_config_dir/iii_drone/parameters/parameters_real.yaml ]; then
-    cp $CONFIG_DIR/parameters/parameters_real.yaml $target_config_dir/iii_drone/parameters/parameters_real.yaml
+if [ ! -f $target_config_dir/iii_drone/parameters/parameter_manifest.yaml ]; then
+    cp $CONFIG_DIR/parameters/parameter_manifest.yaml $target_config_dir/iii_drone/parameters/parameter_manifest.yaml
 fi
 
-if [ ! -f $target_config_dir/iii_drone/parameters/parameters_sim.yaml ]; then
-    cp $CONFIG_DIR/parameters/parameters_sim.yaml $target_config_dir/iii_drone/parameters/parameters_sim.yaml
+$SCRIPT_DIR/update_installed_parameters.py $CONFIG_DIR/parameters/parameter_manifest.yaml $target_config_dir/iii_drone/parameters/
+
+if [ ! -f $target_config_dir/iii_drone/ros_params_real.yaml ]; then
+    cp -f $CONFIG_DIR/ros_params_real.yaml $target_config_dir/iii_drone/ros_params_real.yaml
 fi
 
-$SCRIPT_DIR/update_installed_parameters.py $CONFIG_DIR/parameters/parameters.yaml $target_config_dir/iii_drone/parameters/
-
-if [ ! -f $target_config_dir/iii_drone/ros_params.yaml ]; then
-    cp -f $CONFIG_DIR/ros_params.yaml $target_config_dir/iii_drone/ros_params.yaml
+if [ ! -f $target_config_dir/iii_drone/ros_params_sim.yaml ]; then
+    cp -f $CONFIG_DIR/ros_params_sim.yaml $target_config_dir/iii_drone/ros_params_sim.yaml
 fi
-
-rm -rf $target_config_dir/iii_drone/node_parameters 2> /dev/null
-cp -rf $CONFIG_DIR/node_parameters $target_config_dir/iii_drone/

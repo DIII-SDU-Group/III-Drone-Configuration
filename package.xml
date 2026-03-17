@@ -11,13 +11,20 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <buildtool_depend>pybind11_vendor</buildtool_depend>
 
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>std_msgs</depend>
   <depend>builtin_interfaces</depend>
   <depend>iii_drone_interfaces</depend>
 
   <exec_depend>rclpy</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
