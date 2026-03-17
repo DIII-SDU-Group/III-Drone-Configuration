@@ -128,7 +128,9 @@ It is not part of mandatory startup anymore.
 ### Schema install/update support
 
 - `config/parameters/parameters.yaml`
+- `config/parameters/parameter_manifest.yaml`
 - `scripts/update_installed_parameters.py`
 - `scripts/install.sh`
 
-The last group is still used for install-time propagation and is not the preferred runtime source.
+`parameter_manifest.yaml` is the source used for runtime and install-time propagation.
+`parameters.yaml` remains as a compatibility artifact and is not the preferred source.

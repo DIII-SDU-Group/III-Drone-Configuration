@@ -51,5 +51,5 @@ Server-side rules:
 The following are known candidates for future cleanup:
 - unify remaining Python and C++ validation implementations further
 - modernize or replace the terminal client UX
-- reduce dependence on `config/parameters/parameters.yaml` in install scripts
+- remove `config/parameters/parameters.yaml` once any remaining external compatibility need is gone
 - add automated tests specifically for schema path resolution and snapshot save/load

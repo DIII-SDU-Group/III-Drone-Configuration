@@ -39,6 +39,8 @@ find_package(builtin_interfaces REQUIRED)
 find_package(iii_drone_interfaces REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 
+set(PYTHON_INSTALL_DIR "lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages")
+
 find_package(pybind11 QUIET CONFIG)
 if(NOT pybind11_FOUND)
   find_package(pybind11_vendor QUIET)

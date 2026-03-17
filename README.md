@@ -231,6 +231,6 @@ The configuration server additionally uses:
 
 ## Notes
 
-- `config/parameters/parameters.yaml` still exists because the legacy install/update script references it. The active runtime schema file is `parameter_manifest.yaml`.
+- `config/parameters/parameters.yaml` still exists as a compatibility artifact. The active schema source for runtime and install/update flows is `parameter_manifest.yaml`.
 - The package currently supports both C++ and Python validation paths.
 - Nodes should declare managed parameters explicitly in code. There is no central preset registry anymore.
