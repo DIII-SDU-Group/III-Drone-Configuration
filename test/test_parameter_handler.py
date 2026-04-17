@@ -10,6 +10,24 @@ from iii_drone_configuration.parameter_handler import ParameterHandler
 from conftest import TEST_SCHEMA_FILE
 
 
+def _workspace_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _production_schema_file() -> Path:
+    configured = os.environ.get("III_DRONE_PRODUCTION_SCHEMA_FILE")
+    if configured:
+        return Path(configured)
+    return _workspace_root() / "src" / "III-Drone-Configuration" / "config" / "parameters" / "parameter_manifest.yaml"
+
+
+def _production_ros_params_file(env_var_name: str, fallback_name: str) -> Path:
+    configured = os.environ.get(env_var_name)
+    if configured:
+        return Path(configured)
+    return _workspace_root() / "src" / "III-Drone-Configuration" / "config" / fallback_name
+
+
 def test_parameter_handler_loads_and_validates_from_file():
     handler = ParameterHandler.from_parameter_file(str(TEST_SCHEMA_FILE))
 
@@ -62,23 +80,35 @@ def test_parameter_handler_save_and_reload(tmp_path):
 
 
 def test_production_schema_file_loads_via_parameter_handler():
-    production_schema_file = os.environ["III_DRONE_PRODUCTION_SCHEMA_FILE"]
-    core = NativeConfiguratorCore(production_schema_file)
+    core = NativeConfiguratorCore(str(_production_schema_file()))
 
     managed_names = set(core.schema_parameter_names())
     assert "/control/maneuver_controller/landed_altitude_threshold" in managed_names
     assert "/payload/charger_gripper/gripper_command_interface" in managed_names
 
 
-@pytest.mark.parametrize(
-    "env_var_name",
-    ["III_DRONE_PRODUCTION_ROS_PARAMS_REAL_FILE", "III_DRONE_PRODUCTION_ROS_PARAMS_SIM_FILE"],
-)
-def test_production_ros_param_files_are_schema_compatible(env_var_name):
-    production_schema_file = os.environ["III_DRONE_PRODUCTION_SCHEMA_FILE"]
-    ros_params_file = os.environ[env_var_name]
+def test_production_schema_defaults_validate():
+    core = NativeConfiguratorCore(str(_production_schema_file()))
+    candidates = {}
+    for name in core.schema_parameter_names():
+        entry = core.get_schema_entry(name)
+        candidates[name] = {"type": entry["parameter_type"], "value": entry["default_value"]}
 
-    core = NativeConfiguratorCore(production_schema_file)
+    core.validate_parameter_map(candidates, True)
+
+
+@pytest.mark.parametrize(
+    ("env_var_name", "fallback_name"),
+    [
+        ("III_DRONE_PRODUCTION_ROS_PARAMS_REAL_FILE", "ros_params_real.yaml"),
+        ("III_DRONE_PRODUCTION_ROS_PARAMS_SIM_FILE", "ros_params_sim.yaml"),
+    ],
+)
+def test_production_ros_param_files_are_schema_compatible(env_var_name, fallback_name):
+    production_schema_file = _production_schema_file()
+    ros_params_file = _production_ros_params_file(env_var_name, fallback_name)
+
+    core = NativeConfiguratorCore(str(production_schema_file))
     ros_params = yaml.safe_load(Path(ros_params_file).read_text())
     ros_parameters = ros_params["/**"]["ros__parameters"]
 

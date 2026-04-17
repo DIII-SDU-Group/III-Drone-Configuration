@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import os
+import time
+import traceback
 import yaml
 
 import rclpy
@@ -38,7 +40,14 @@ from iii_drone_interfaces.srv import (
     UndeclareParameters,
 )
 from iii_drone_configuration.parameter_handler import ParameterHandler
-from iii_drone_configuration.schema_utils import resolve_iii_config_dir, resolve_schema_file, resolve_snapshot_dir
+from iii_drone_configuration.schema_utils import (
+    persist_default_parameter_file_name,
+    profile_name_from_environment,
+    resolve_active_parameter_file,
+    resolve_default_parameter_file_name,
+    resolve_schema_file,
+    resolve_snapshot_dir,
+)
 
 
 ###############################################################################
@@ -80,12 +89,14 @@ class ConfigurationServer(Node):
             default_parameter_file=str(self.get_parameter("default_parameter_file").value),
             sim_parameter_file=str(self.get_parameter("sim_parameter_file").value),
         )
+        self.get_logger().info(f"Configuration server initialized with schema file: {self.schema_file_path}")
         self.parameter_handler: Optional[ParameterHandler] = None
         self.native_core: Optional[NativeConfiguratorCore] = None
         self.managed_keys: set[str] = set()
         self.server_values: dict[str, object] = {}
         self.node_registry: dict[str, ManagedNodeRecord] = {}
-        self.current_parameter_file: str = self._default_snapshot_file_name()
+        self.current_parameter_file: str = ""
+        self._default_parameter_file_path: Optional[Path] = None
 
         self.declare_parameters_service: Optional[Service] = None
         self.undeclare_parameters_service: Optional[Service] = None
@@ -113,12 +124,7 @@ class ConfigurationServer(Node):
         return snapshot_dir
 
     def _default_snapshot_file_name(self) -> str:
-        use_sim = os.environ.get("SIMULATION", "false").lower() == "true"
-        parameter_name = "sim_snapshot_file" if use_sim else "default_snapshot_file"
-        return str(self.get_parameter(parameter_name).value)
-
-    def _default_snapshot_path(self) -> Path:
-        return self._snapshot_dir() / self._default_snapshot_file_name()
+        return resolve_default_parameter_file_name(profile_name_from_environment())
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
         ret = super().on_configure(state)
@@ -127,23 +133,30 @@ class ConfigurationServer(Node):
 
         try:
             from iii_drone_configuration._native import NativeConfiguratorCore
+
+            self.get_logger().info(f"Loading parameter schema: {self.schema_file_path}")
+            self.native_core = NativeConfiguratorCore(str(self.schema_file_path))
+            self.parameter_handler = ParameterHandler.from_parameter_file(str(self.schema_file_path))
+            self.managed_keys = set(self.native_core.schema_parameter_names())
+            self.server_values = {
+                key: self.native_core.get_schema_entry(key)["default_value"] for key in sorted(self.managed_keys)
+            }
+            self.node_registry.clear()
+            self._load_boot_parameter_file_if_available()
+            self.get_logger().info(f"Configuration server loaded {len(self.managed_keys)} managed parameters.")
+            return TransitionCallbackReturn.SUCCESS
         except ImportError as exc:
             self.get_logger().error(
                 "iii_drone_configuration native bindings are not available. "
                 "Build the iii_drone_configuration package before using the configuration server."
             )
-            return TransitionCallbackReturn.ERROR
-
-        self.native_core = NativeConfiguratorCore(str(self.schema_file_path))
-        self.parameter_handler = ParameterHandler.from_parameter_file(str(self.schema_file_path))
-        self.managed_keys = set(self.native_core.schema_parameter_names())
-        self.server_values = {
-            key: self.native_core.get_schema_entry(key)["default_value"] for key in sorted(self.managed_keys)
-        }
-        self.node_registry.clear()
-        self.current_parameter_file = self._default_snapshot_file_name()
-        self._load_default_snapshot_if_available()
-        return TransitionCallbackReturn.SUCCESS
+            self.get_logger().error(str(exc))
+        except Exception as exc:
+            self.get_logger().error(
+                f"Failed to configure configuration server with schema '{self.schema_file_path}': {exc}"
+            )
+            self.get_logger().error(traceback.format_exc())
+        return TransitionCallbackReturn.ERROR
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         ret = super().on_activate(state)
@@ -246,6 +259,7 @@ class ConfigurationServer(Node):
         self.server_values.clear()
         self.node_registry.clear()
         self.pending_node_notifications.clear()
+        self._default_parameter_file_path = None
         return TransitionCallbackReturn.SUCCESS
 
     def managed_node_notification_callback(self, msg: String) -> None:
@@ -262,6 +276,31 @@ class ConfigurationServer(Node):
     def _service_path(self, node_fq_name: str, service_name: str) -> str:
         return f"{node_fq_name.rstrip('/')}/{service_name}"
 
+    @staticmethod
+    def _consume_future_result(future) -> None:
+        try:
+            future.result()
+        except Exception:
+            pass
+
+    def _call_client(self, client, request, timeout_sec: float):
+        future = client.call_async(request)
+        try:
+            future._set_executor(None)
+        except Exception:
+            pass
+        future.add_done_callback(self._consume_future_result)
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            if future.done():
+                try:
+                    return future.result()
+                except Exception:
+                    return None
+            time.sleep(0.01)
+        future.cancel()
+        return None
+
     def _call_list_parameters(self, node_fq_name: str) -> Optional[list[str]]:
         client = self.create_client(ListParameters, self._service_path(node_fq_name, "list_parameters"), callback_group=self.cb_group)
         if not client.wait_for_service(timeout_sec=0.2):
@@ -271,7 +310,9 @@ class ConfigurationServer(Node):
         request.prefixes = []
         request.depth = 1000
         try:
-            response = client.call(request)
+            response = self._call_client(client, request, timeout_sec=0.5)
+            if response is None:
+                return None
             return list(response.result.names)
         finally:
             self.destroy_client(client)
@@ -284,7 +325,9 @@ class ConfigurationServer(Node):
         request = GetParameters.Request()
         request.names = parameter_names
         try:
-            response = client.call(request)
+            response = self._call_client(client, request, timeout_sec=0.5)
+            if response is None:
+                return None
             values = {}
             for name, value in zip(parameter_names, response.values):
                 values[name] = rclpy.parameter.parameter_value_to_python(value)
@@ -303,7 +346,9 @@ class ConfigurationServer(Node):
         request.parameters = [parameter.to_parameter_msg()]
 
         try:
-            response = client.call(request)
+            response = self._call_client(client, request, timeout_sec=0.5)
+            if response is None:
+                return False, f"Timed out waiting for {node_fq_name}"
             if not response.results:
                 return False, f"No result returned by {node_fq_name}"
             result = response.results[0]
@@ -331,8 +376,13 @@ class ConfigurationServer(Node):
             if values is None:
                 continue
 
+            authoritative_values = {
+                parameter_name: self.server_values[parameter_name]
+                for parameter_name in managed_parameter_names
+            }
+
             for parameter_name in managed_parameter_names:
-                authoritative_value = self.server_values[parameter_name]
+                authoritative_value = authoritative_values[parameter_name]
                 if values.get(parameter_name) == authoritative_value:
                     continue
 
@@ -353,30 +403,12 @@ class ConfigurationServer(Node):
             self.node_registry[node_fq_name] = ManagedNodeRecord(
                 fq_name=node_fq_name,
                 parameter_names=managed_parameter_names,
-                values=values,
+                values=dict(authoritative_values),
             )
 
         offline_nodes = set(self.node_registry.keys()) - discovered_fq_names
         for node_fq_name in offline_nodes:
             del self.node_registry[node_fq_name]
-
-        grouped_nodes: dict[str, list[str]] = {}
-        for node_fq_name, record in self.node_registry.items():
-            for parameter_name in record.parameter_names:
-                grouped_nodes.setdefault(parameter_name, []).append(node_fq_name)
-
-        for parameter_name, node_fq_names in grouped_nodes.items():
-            authoritative_value = self.server_values[parameter_name]
-            for node_fq_name in node_fq_names:
-                node_value = self.node_registry[node_fq_name].values.get(parameter_name)
-                if node_value != authoritative_value:
-                    success, message = self._call_set_parameter(node_fq_name, parameter_name, authoritative_value)
-                    if not success:
-                        self.get_logger().warn(
-                            f"Failed to synchronize '{parameter_name}' to '{node_fq_name}': {message}"
-                        )
-                    else:
-                        self.node_registry[node_fq_name].values[parameter_name] = authoritative_value
 
         self.pending_node_notifications.clear()
 
@@ -431,11 +463,18 @@ class ConfigurationServer(Node):
         except Exception as exc:
             return False, str(exc)
 
-        target_nodes = self._group_nodes_for_parameter(parameter_name)
+        target_nodes = [
+            node_fq_name
+            for node_fq_name in self._group_nodes_for_parameter(parameter_name)
+            if node_fq_name in self.node_registry
+        ]
         if require_targets and not target_nodes:
             return False, f"No running nodes currently declare '{parameter_name}'"
 
-        previous_values = {node_fq_name: self.node_registry[node_fq_name].values.get(parameter_name) for node_fq_name in target_nodes}
+        previous_values = {
+            node_fq_name: self.node_registry[node_fq_name].values.get(parameter_name)
+            for node_fq_name in target_nodes
+        }
         successfully_updated_nodes: list[str] = []
 
         for node_fq_name in target_nodes:
@@ -443,13 +482,16 @@ class ConfigurationServer(Node):
             if not success:
                 for updated_node in successfully_updated_nodes:
                     rollback_value = previous_values[updated_node]
-                    if rollback_value is not None:
+                    updated_record = self.node_registry.get(updated_node)
+                    if rollback_value is not None and updated_record is not None:
                         self._call_set_parameter(updated_node, parameter_name, rollback_value)
-                        self.node_registry[updated_node].values[parameter_name] = rollback_value
+                        updated_record.values[parameter_name] = rollback_value
                 return False, f"{node_fq_name} rejected update: {message}"
 
             successfully_updated_nodes.append(node_fq_name)
-            self.node_registry[node_fq_name].values[parameter_name] = value
+            updated_record = self.node_registry.get(node_fq_name)
+            if updated_record is not None:
+                updated_record.values[parameter_name] = value
 
         self.parameter_handler.set_param(parameter_name, value, parameter_initialized=False, force_constant=True)
         self.server_values[parameter_name] = value
@@ -475,6 +517,12 @@ class ConfigurationServer(Node):
         ros_parameters = data.get("/**", {}).get("ros__parameters", {})
         return {name: value for name, value in ros_parameters.items() if name in self.managed_keys}
 
+    def _load_parameter_values_from_path(self, path: Path) -> dict[str, object]:
+        with open(path, "r", encoding="utf-8") as file:
+            data = yaml.safe_load(file) or {}
+        ros_parameters = data.get("/**", {}).get("ros__parameters", {})
+        return {name: value for name, value in ros_parameters.items() if name in self.managed_keys}
+
     def _write_snapshot_file(self, file_name: str, overwrite: bool) -> Path:
         path = self._snapshot_dir() / file_name
         if path.exists() and not overwrite:
@@ -491,36 +539,32 @@ class ConfigurationServer(Node):
                         f"{node_fq_name} has {node_value!r}, server has {self.server_values[parameter_name]!r}"
                     )
 
-        ros_parameters = {
-            parameter_name: self.server_values[parameter_name]
-            for parameter_name in sorted(self.server_values.keys())
-        }
-        with open(path, "w") as file:
-            yaml.safe_dump({"/**": {"ros__parameters": ros_parameters}}, file, sort_keys=False)
+        if self._default_parameter_file_path is not None and self._default_parameter_file_path.exists():
+            with open(self._default_parameter_file_path, "r", encoding="utf-8") as file:
+                data = yaml.safe_load(file) or {}
+        else:
+            data = {"/**": {"ros__parameters": {}}}
+
+        ros_parameters = data.setdefault("/**", {}).setdefault("ros__parameters", {})
+        for parameter_name in sorted(self.server_values.keys()):
+            ros_parameters[parameter_name] = self.server_values[parameter_name]
+
+        with open(path, "w", encoding="utf-8") as file:
+            yaml.safe_dump(data, file, sort_keys=False)
         return path
 
     def _set_default_snapshot_file(self, file_name: str) -> None:
-        use_sim = os.environ.get("SIMULATION", "false").lower() == "true"
-        parameter_name = "sim_snapshot_file" if use_sim else "default_snapshot_file"
-        if self.has_parameter(parameter_name):
-            self.set_parameters([rclpy.parameter.Parameter(parameter_name, value=file_name)])
-
-        ros_params_path = resolve_iii_config_dir() / (
-            "ros_params_sim.yaml" if use_sim else "ros_params_real.yaml"
-        )
-        if ros_params_path.exists():
-            with open(ros_params_path, "r") as file:
-                ros_params = yaml.safe_load(file) or {}
-            ros_params.setdefault("/**", {}).setdefault("ros__parameters", {})[parameter_name] = file_name
-            with open(ros_params_path, "w") as file:
-                yaml.safe_dump(ros_params, file, sort_keys=False)
-
-    def _load_default_snapshot_if_available(self) -> None:
-        snapshot_path = self._default_snapshot_path()
-        if not snapshot_path.exists():
+        profile_name = profile_name_from_environment()
+        persist_default_parameter_file_name(profile_name, file_name)
+        self._default_parameter_file_path = self._snapshot_dir() / file_name
+    def _load_boot_parameter_file_if_available(self) -> None:
+        parameter_file_path = resolve_active_parameter_file(profile_name_from_environment())
+        self.current_parameter_file = parameter_file_path.name
+        self._default_parameter_file_path = parameter_file_path
+        if not parameter_file_path.exists():
             return
 
-        values = self._load_snapshot_values(snapshot_path.name)
+        values = self._load_parameter_values_from_path(parameter_file_path)
         if self.native_core is None:
             raise RuntimeError("Configuration server native core is not initialized")
 
@@ -532,7 +576,6 @@ class ConfigurationServer(Node):
         for parameter_name, value in values.items():
             self.parameter_handler.set_param(parameter_name, value, parameter_initialized=False, force_constant=True)
             self.server_values[parameter_name] = value
-        self.current_parameter_file = snapshot_path.name
 
     ############################################################################
     # Compatibility services
@@ -613,6 +656,7 @@ class ConfigurationServer(Node):
 
         self.current_parameter_file = request.file
         if request.set_as_default:
+            self._write_snapshot_file(request.file, overwrite=True)
             self._set_default_snapshot_file(request.file)
 
         response.success = True
@@ -627,7 +671,7 @@ class ConfigurationServer(Node):
             response.message = str(exc)
             return response
 
-        success, message = self._apply_shared_parameter_update(request.parameter_name, cast_value, require_targets=True)
+        success, message = self._apply_shared_parameter_update(request.parameter_name, cast_value, require_targets=False)
         response.success = success
         response.message = message
         return response
@@ -638,9 +682,19 @@ class ConfigurationServer(Node):
         return response
 
     def set_current_parameter_file_as_default_callback(self, request, response):
-        self._set_default_snapshot_file(self.current_parameter_file)
-        response.success = True
-        response.message = ""
+        if not self.current_parameter_file:
+            response.success = False
+            response.message = "No current parameter file selected"
+            return response
+
+        try:
+            self._write_snapshot_file(self.current_parameter_file, overwrite=True)
+            self._set_default_snapshot_file(self.current_parameter_file)
+            response.success = True
+            response.message = ""
+        except Exception as exc:
+            response.success = False
+            response.message = str(exc)
         return response
 
 
@@ -651,9 +705,9 @@ def main(args=None):
     executor.add_node(node)
 
     try:
-        node.trigger_configure()
-        node.trigger_activate()
         executor.spin()
+    except KeyboardInterrupt:
+        node.get_logger().info("Configuration server received shutdown signal.")
     finally:
         executor.shutdown()
         node.destroy_node()

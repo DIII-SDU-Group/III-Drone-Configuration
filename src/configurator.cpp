@@ -1,5 +1,7 @@
 #include "iii_drone_configuration/configurator.hpp"
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
+
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
@@ -30,6 +32,28 @@ std::string ExpandHome(const std::string & path)
     return path;
 }
 
+std::filesystem::path SourceConfigDirectory()
+{
+    if (const char * workspace_dir = std::getenv("WORKSPACE_DIR"); workspace_dir != nullptr && workspace_dir[0] != '\0') {
+        const auto source_config_dir = std::filesystem::path(ExpandHome(workspace_dir)) /
+            "src" / "III-Drone-Configuration" / "config";
+        if (std::filesystem::exists(source_config_dir)) {
+            return source_config_dir;
+        }
+    }
+
+    try {
+        const auto package_share = ament_index_cpp::get_package_share_directory("iii_drone_configuration");
+        const auto installed_config_dir = std::filesystem::path(package_share) / "config";
+        if (std::filesystem::exists(installed_config_dir)) {
+            return installed_config_dir;
+        }
+    } catch (const std::exception &) {
+    }
+
+    return {};
+}
+
 }  // namespace
 
 template <typename nodeT>
@@ -46,7 +70,13 @@ Configurator<nodeT>::Configurator(
     declareSupportParameterIfMissing("sim_parameter_file", "parameter_manifest.yaml");
 
     schema_file_path_ = resolveSchemaFilePath();
-    schema_validator_ = SchemaValidator::FromFile(schema_file_path_);
+    try {
+        schema_validator_ = SchemaValidator::FromFile(schema_file_path_);
+    } catch (const std::exception & ex) {
+        throw std::runtime_error(
+            "Configurator failed to load parameter schema '" + schema_file_path_ + "': " + ex.what()
+        );
+    }
 
     parameter_events_subscriber_ = node_->template create_subscription<rcl_interfaces::msg::ParameterEvent>(
         "/parameter_events",
@@ -178,7 +208,7 @@ void Configurator<nodeT>::SyncParameters(const std::vector<std::string> & parame
         return;
     }
 
-    auto candidate_values = getCurrentManagedParameterValues();
+    auto candidate_values = getCurrentValuesWithSchemaDefaults();
     for (const auto & full_name : parameter_full_names) {
         schema_validator_.ValidateParameterValue(full_name, candidate_values.at(full_name), candidate_values, true);
     }
@@ -221,7 +251,7 @@ void Configurator<nodeT>::validate() const
     if (managed_parameter_names_.empty()) {
         return;
     }
-    schema_validator_.ValidateParameterMap(getCurrentManagedParameterValues(), true);
+    schema_validator_.ValidateParameterMap(getCurrentValuesWithSchemaDefaults(), true);
 
     if (!managed_node_announced_) {
         const_cast<Configurator<nodeT> *>(this)->announceManagedNode();
@@ -292,7 +322,7 @@ rcl_interfaces::msg::SetParametersResult Configurator<nodeT>::onSetParametersCal
     rcl_interfaces::msg::SetParametersResult result;
     result.successful = true;
 
-    auto candidate_values = getCurrentManagedParameterValues();
+    auto candidate_values = getCurrentValuesWithSchemaDefaults();
 
     for (const auto & parameter : parameters) {
         if (std::find(managed_parameter_names_.begin(), managed_parameter_names_.end(), parameter.get_name()) == managed_parameter_names_.end()) {
@@ -341,6 +371,21 @@ std::unordered_map<std::string, rclcpp::ParameterValue> Configurator<nodeT>::get
 }
 
 template <typename nodeT>
+std::unordered_map<std::string, rclcpp::ParameterValue> Configurator<nodeT>::getCurrentValuesWithSchemaDefaults() const
+{
+    std::unordered_map<std::string, rclcpp::ParameterValue> values;
+    for (const auto & [parameter_name, schema_entry] : schema_validator_.parameters()) {
+        values.emplace(parameter_name, schema_entry.default_value);
+    }
+
+    for (const auto & [parameter_name, value] : getCurrentManagedParameterValues()) {
+        values[parameter_name] = value;
+    }
+
+    return values;
+}
+
+template <typename nodeT>
 std::string Configurator<nodeT>::resolveSchemaFilePath()
 {
     if (const char * explicit_file = std::getenv("III_DRONE_SCHEMA_FILE"); explicit_file != nullptr && explicit_file[0] != '\0') {
@@ -351,7 +396,20 @@ std::string Configurator<nodeT>::resolveSchemaFilePath()
     const std::string parameters_path_postfix = node_->get_parameter("parameters_path_postfix").as_string();
     const std::string parameters_file = node_->get_parameter(IsSimulation() ? "sim_parameter_file" : "default_parameter_file").as_string();
 
-    return (std::filesystem::path(config_base_dir) / "iii_drone" / parameters_path_postfix / parameters_file).string();
+    const auto configured = std::filesystem::path(config_base_dir) / "iii_drone" / parameters_path_postfix / parameters_file;
+    if (std::filesystem::exists(configured)) {
+        return configured.string();
+    }
+
+    const auto source_config_dir = SourceConfigDirectory();
+    if (!source_config_dir.empty()) {
+        const auto source_file = source_config_dir / parameters_path_postfix / parameters_file;
+        if (std::filesystem::exists(source_file)) {
+            return source_file.string();
+        }
+    }
+
+    return configured.string();
 }
 
 template <typename nodeT>

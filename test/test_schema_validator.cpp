@@ -87,6 +87,17 @@ TEST(SchemaValidatorTest, LoadsProductionSchemaFile)
     EXPECT_TRUE(validator.HasParameter("/payload/charger_gripper/gripper_command_interface"));
 }
 
+TEST(SchemaValidatorTest, ProductionSchemaDefaultsValidate)
+{
+    const auto validator = SchemaValidator::FromFile(PRODUCTION_SCHEMA_FILE);
+    std::unordered_map<std::string, rclcpp::ParameterValue> values;
+    for (const auto & [name, entry] : validator.parameters()) {
+        values.emplace(name, entry.default_value);
+    }
+
+    EXPECT_NO_THROW(validator.ValidateParameterMap(values, true));
+}
+
 TEST(SchemaValidatorTest, ProductionRosParamFilesOnlyReferenceManagedSchemaKeys)
 {
     const auto validator = SchemaValidator::FromFile(PRODUCTION_SCHEMA_FILE);

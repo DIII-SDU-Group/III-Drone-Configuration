@@ -30,6 +30,7 @@ link_directories(src/matlab_MPC_5Hz_hp10)
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(rcl_interfaces REQUIRED)
@@ -132,6 +133,7 @@ target_link_libraries(iii_drone_configuration_lib
 )
 
 ament_target_dependencies(iii_drone_configuration_lib
+  ament_index_cpp
   rclcpp
   rclcpp_lifecycle
   rcl_interfaces
@@ -204,6 +206,11 @@ install(
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(
+  DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
+)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
@@ -245,6 +252,7 @@ if(BUILD_TESTING)
   target_link_libraries(test_configurator iii_drone_configuration_lib)
   target_compile_definitions(test_configurator PRIVATE
     TEST_SCHEMA_FILE="${III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE}"
+    PRODUCTION_SCHEMA_FILE="${III_DRONE_CONFIGURATION_PRODUCTION_SCHEMA_FILE}"
   )
   ament_target_dependencies(test_configurator rclcpp rclcpp_lifecycle)
 
@@ -265,6 +273,13 @@ if(BUILD_TESTING)
     TEST_SCHEMA_FILE="${III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE}"
   )
   ament_target_dependencies(configurator_managed_test_node rclcpp rclcpp_lifecycle)
+
+  ament_add_pytest_test(
+    test_python_schema_utils
+    "${PROJECT_SOURCE_DIR}/test/test_schema_utils.py"
+    APPEND_ENV
+      PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+  )
 
   ament_add_pytest_test(
     test_python_configuration
@@ -296,5 +311,7 @@ if(BUILD_TESTING)
     "${PROJECT_SOURCE_DIR}/test/test_configuration_e2e.py"
     APPEND_ENV
       PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+    ENV
+      ROS_DOMAIN_ID=221
   )
 endif()

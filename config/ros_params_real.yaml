@@ -170,7 +170,7 @@
     /mission/wait_for_maneuver_start_timeout_ms: 1000
     /mission/get_reference_timeout_ms: 150
     /mission/manual_stick_input_threshold: 0.35
-    /mission/mission_done_select_mode: land
+    /mission/mission_done_select_mode: hold
     /behavior/server_timeout_ms: 60000
     /behavior/wait_for_server_timeout_ms: 60000
     /behavior/tick_period_ms: 10

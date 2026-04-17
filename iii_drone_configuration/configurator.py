@@ -91,6 +91,27 @@ class Configurator:
             values[parameter_name] = self.node.get_parameter(parameter_name).value
         return values
 
+    def _candidate_parameter_map(
+        self,
+        candidate_values: Dict[str, object],
+        candidate_types: Dict[str, int],
+    ) -> Dict[str, Dict[str, object]]:
+        parameter_map = {}
+        for name in self._native_core.schema_parameter_names():
+            entry = self._native_core.get_schema_entry(name)
+            parameter_map[name] = {
+                "type": entry["parameter_type"],
+                "value": entry["default_value"],
+            }
+
+        for name, value in candidate_values.items():
+            parameter_map[name] = {
+                "type": candidate_types[name],
+                "value": value,
+            }
+
+        return parameter_map
+
     def cleanup(self):
         if self.is_cleaned_up:
             return
@@ -156,11 +177,13 @@ class Configurator:
         current_values = self._current_managed_parameter_values()
         if not current_values:
             return
+        current_types = {
+            name: self._parameter_type_value(self.node.get_parameter(name).type_)
+            for name in self._managed_parameter_names
+            if self.node.has_parameter(name)
+        }
         self._native_core.validate_parameter_map(
-            {
-                name: {"type": self._parameter_type_value(self.node.get_parameter(name).type_), "value": value}
-                for name, value in current_values.items()
-            },
+            self._candidate_parameter_map(current_values, current_types),
             True,
         )
         if not self._managed_node_announced:
@@ -228,10 +251,7 @@ class Configurator:
                     parameter.name,
                     parameter.value,
                     self._parameter_type_value(parameter.type_),
-                    {
-                        name: {"type": candidate_types[name], "value": candidate_values[name]}
-                        for name in candidate_values
-                    },
+                    self._candidate_parameter_map(candidate_values, candidate_types),
                     False,
                 )
             except Exception as exc:
@@ -241,10 +261,7 @@ class Configurator:
 
         try:
             self._native_core.validate_parameter_map(
-                {
-                    name: {"type": candidate_types[name], "value": candidate_values[name]}
-                    for name in candidate_values
-                },
+                self._candidate_parameter_map(candidate_values, candidate_types),
                 True,
             )
         except Exception as exc:

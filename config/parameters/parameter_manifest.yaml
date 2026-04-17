@@ -106,7 +106,6 @@ perception:
       type: bool
       value: true
       constant: false
-
 control:
   maneuver_controller:
     ground_estimate_window_size:
@@ -756,7 +755,7 @@ mission:
     constant: false
   mission_done_select_mode:
     type: string
-    value: land
+    value: hold
     options:
     - land
     - hold
