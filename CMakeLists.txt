@@ -222,10 +222,10 @@ if(BUILD_TESTING)
     "${PROJECT_SOURCE_DIR}/config/parameters/parameter_manifest.yaml"
   )
   set(III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_REAL_FILE
-    "${PROJECT_SOURCE_DIR}/config/ros_params_real.yaml"
+    "${PROJECT_SOURCE_DIR}/config/parameter_sets/real/tracked/default.yaml"
   )
   set(III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_SIM_FILE
-    "${PROJECT_SOURCE_DIR}/config/ros_params_sim.yaml"
+    "${PROJECT_SOURCE_DIR}/config/parameter_sets/sim/tracked/default.yaml"
   )
 
   ament_add_gtest(test_schema_validator

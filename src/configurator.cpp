@@ -15,12 +15,6 @@ using namespace iii_drone::configuration;
 
 namespace {
 
-bool IsSimulation()
-{
-    const char * simulation = std::getenv("SIMULATION");
-    return simulation != nullptr && std::string(simulation) == "true";
-}
-
 std::string ExpandHome(const std::string & path)
 {
     if (!path.empty() && path[0] == '~') {
@@ -64,10 +58,6 @@ Configurator<nodeT>::Configurator(
 ) : node_(node), after_parameter_change_callback_(after_parameter_change_callback)
 {
     (void)node_name;
-
-    declareSupportParameterIfMissing("parameters_path_postfix", "parameters/");
-    declareSupportParameterIfMissing("default_parameter_file", "parameter_manifest.yaml");
-    declareSupportParameterIfMissing("sim_parameter_file", "parameter_manifest.yaml");
 
     schema_file_path_ = resolveSchemaFilePath();
     try {
@@ -393,31 +383,20 @@ std::string Configurator<nodeT>::resolveSchemaFilePath()
     }
 
     const std::string config_base_dir = ExpandHome(std::getenv("CONFIG_BASE_DIR") != nullptr ? std::getenv("CONFIG_BASE_DIR") : "~/.config");
-    const std::string parameters_path_postfix = node_->get_parameter("parameters_path_postfix").as_string();
-    const std::string parameters_file = node_->get_parameter(IsSimulation() ? "sim_parameter_file" : "default_parameter_file").as_string();
-
-    const auto configured = std::filesystem::path(config_base_dir) / "iii_drone" / parameters_path_postfix / parameters_file;
+    const auto configured = std::filesystem::path(config_base_dir) / "iii_drone" / "parameters" / "parameter_manifest.yaml";
     if (std::filesystem::exists(configured)) {
         return configured.string();
     }
 
     const auto source_config_dir = SourceConfigDirectory();
     if (!source_config_dir.empty()) {
-        const auto source_file = source_config_dir / parameters_path_postfix / parameters_file;
+        const auto source_file = source_config_dir / "parameters" / "parameter_manifest.yaml";
         if (std::filesystem::exists(source_file)) {
             return source_file.string();
         }
     }
 
     return configured.string();
-}
-
-template <typename nodeT>
-void Configurator<nodeT>::declareSupportParameterIfMissing(const std::string & name, const std::string & default_value)
-{
-    if (!node_->has_parameter(name)) {
-        node_->declare_parameter(name, default_value);
-    }
 }
 
 template <typename nodeT>

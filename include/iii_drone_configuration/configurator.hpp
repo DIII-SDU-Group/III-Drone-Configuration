@@ -105,8 +105,6 @@ private:
 
     std::string resolveSchemaFilePath();
 
-    void declareSupportParameterIfMissing(const std::string & name, const std::string & default_value);
-
     void announceManagedNode() const;
 };
 

@@ -42,15 +42,7 @@ class Configurator:
         self.is_cleaned_up = False
         self._managed_node_announced = False
 
-        self._declare_support_parameter_if_missing("parameters_path_postfix", "parameters/")
-        self._declare_support_parameter_if_missing("default_parameter_file", "parameter_manifest.yaml")
-        self._declare_support_parameter_if_missing("sim_parameter_file", "parameter_manifest.yaml")
-
-        self.schema_file_path = resolve_schema_file(
-            parameters_path_postfix=str(self.node.get_parameter("parameters_path_postfix").value),
-            default_parameter_file=str(self.node.get_parameter("default_parameter_file").value),
-            sim_parameter_file=str(self.node.get_parameter("sim_parameter_file").value),
-        )
+        self.schema_file_path = resolve_schema_file()
         try:
             from ._native import NativeConfiguratorCore
         except ImportError as exc:
@@ -72,10 +64,6 @@ class Configurator:
             "/configuration/configuration_server/managed_node_available",
             10,
         )
-
-    def _declare_support_parameter_if_missing(self, name: str, default_value: str) -> None:
-        if not self.node.has_parameter(name):
-            self.node.declare_parameter(name, default_value)
 
     def _announce_managed_node(self) -> None:
         if not self._managed_parameter_names:

@@ -22,30 +22,46 @@ def write_bootstrap_parameter_file(
     *,
     profile_name: str = "sim",
     managed_overrides: dict[str, object] | None = None,
-    default_snapshot_file: str | None = None,
+    active_parameter_file: str | None = None,
 ) -> Path:
     config_root = base_dir / "iii_drone"
     config_root.mkdir(parents=True, exist_ok=True)
 
-    ros_parameters = {
-        "parameters_path_postfix": "parameters/",
-        "default_parameter_file": "parameter_manifest.yaml",
-        "sim_parameter_file": "parameter_manifest.yaml",
-        "parameter_snapshots_path_postfix": "parameter_snapshots/",
-        "default_snapshot_file": "default_snapshot.yaml",
-        "sim_snapshot_file": "sim_snapshot.yaml",
-        "use_sim_time": profile_name == "sim",
-    }
-    if default_snapshot_file is not None:
-        key = "sim_snapshot_file" if profile_name == "sim" else "default_snapshot_file"
-        ros_parameters[key] = default_snapshot_file
-    if managed_overrides:
-        ros_parameters.update(managed_overrides)
+    selector_dir = config_root / "profiles"
+    selector_dir.mkdir(parents=True, exist_ok=True)
 
-    file_name = "ros_params_sim.yaml" if profile_name == "sim" else "ros_params_real.yaml"
-    path = config_root / file_name
-    path.write_text(
-        yaml.safe_dump({"/**": {"ros__parameters": ros_parameters}}, sort_keys=False),
+    parameter_set_root = config_root / "parameter_sets" / profile_name
+    tracked_path = parameter_set_root / "tracked" / "default.yaml"
+    tracked_path.parent.mkdir(parents=True, exist_ok=True)
+    tracked_path.write_text(
+        yaml.safe_dump(
+            {"/**": {"ros__parameters": managed_overrides or {}}},
+            sort_keys=False,
+        ),
         encoding="utf-8",
     )
-    return path
+
+    selector_path = selector_dir / f"{profile_name}.yaml"
+    selector_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "active_parameter_set": active_parameter_file or "tracked/default.yaml",
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    if active_parameter_file and active_parameter_file != "tracked/default.yaml":
+        active_path = parameter_set_root / active_parameter_file
+        active_path.parent.mkdir(parents=True, exist_ok=True)
+        active_path.write_text(
+            yaml.safe_dump(
+                {"/**": {"ros__parameters": managed_overrides or {}}},
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+
+    return selector_path

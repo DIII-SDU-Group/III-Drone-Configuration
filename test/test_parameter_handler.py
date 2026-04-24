@@ -100,8 +100,8 @@ def test_production_schema_defaults_validate():
 @pytest.mark.parametrize(
     ("env_var_name", "fallback_name"),
     [
-        ("III_DRONE_PRODUCTION_ROS_PARAMS_REAL_FILE", "ros_params_real.yaml"),
-        ("III_DRONE_PRODUCTION_ROS_PARAMS_SIM_FILE", "ros_params_sim.yaml"),
+        ("III_DRONE_PRODUCTION_ROS_PARAMS_REAL_FILE", "parameter_sets/real/tracked/default.yaml"),
+        ("III_DRONE_PRODUCTION_ROS_PARAMS_SIM_FILE", "parameter_sets/sim/tracked/default.yaml"),
     ],
 )
 def test_production_ros_param_files_are_schema_compatible(env_var_name, fallback_name):
@@ -112,20 +112,7 @@ def test_production_ros_param_files_are_schema_compatible(env_var_name, fallback
     ros_params = yaml.safe_load(Path(ros_params_file).read_text())
     ros_parameters = ros_params["/**"]["ros__parameters"]
 
-    ignored_keys = {
-        "default_snapshot_file",
-        "sim_snapshot_file",
-        "parameters_path_postfix",
-        "default_parameter_file",
-        "sim_parameter_file",
-        "parameter_snapshots_path_postfix",
-        "use_sim_time",
-    }
-
     for name, value in ros_parameters.items():
-        if name in ignored_keys:
-            continue
-
         schema_entry = core.get_schema_entry(name)
         assert schema_entry["name"] == name, f"Unexpected production ros param key: {name}"
 

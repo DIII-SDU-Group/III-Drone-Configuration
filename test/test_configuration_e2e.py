@@ -239,7 +239,7 @@ def test_python_managed_nodes_reject_invalid_updates_and_accept_snapshot_load(ru
     assert not invalid_response.success
     assert node.get_parameter("/control/gains/i").value == pytest.approx(0.3)
 
-    snapshot_path = tmp_path / "iii_drone" / "parameter_snapshots" / "e2e_snapshot.yaml"
+    snapshot_path = tmp_path / "iii_drone" / "parameter_sets" / "sim" / "snapshots" / "e2e_snapshot.yaml"
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
     snapshot_path.write_text(
         yaml.safe_dump(

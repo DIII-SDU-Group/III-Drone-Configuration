@@ -109,17 +109,6 @@ TEST(SchemaValidatorTest, ProductionRosParamFilesOnlyReferenceManagedSchemaKeys)
 
         for (const auto & item : ros_parameters) {
             const auto name = item.first.as<std::string>();
-
-            if (name == "default_snapshot_file" ||
-                name == "sim_snapshot_file" ||
-                name == "parameters_path_postfix" ||
-                name == "default_parameter_file" ||
-                name == "sim_parameter_file" ||
-                name == "parameter_snapshots_path_postfix" ||
-                name == "use_sim_time") {
-                continue;
-            }
-
             EXPECT_TRUE(validator.HasParameter(name)) << "Unexpected production ros param key: " << name;
         }
     }
