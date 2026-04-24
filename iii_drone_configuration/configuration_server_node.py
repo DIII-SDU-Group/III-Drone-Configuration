@@ -331,6 +331,25 @@ class ConfigurationServer(Node):
             if values is None:
                 continue
 
+            for parameter_name in managed_parameter_names:
+                authoritative_value = self.server_values[parameter_name]
+                if values.get(parameter_name) == authoritative_value:
+                    continue
+
+                success, message = self._call_set_parameter(
+                    node_fq_name,
+                    parameter_name,
+                    authoritative_value,
+                )
+                if not success:
+                    self.get_logger().warn(
+                        f"Failed to synchronize newly discovered node '{node_fq_name}' "
+                        f"parameter '{parameter_name}': {message}"
+                    )
+                    continue
+
+                values[parameter_name] = authoritative_value
+
             self.node_registry[node_fq_name] = ManagedNodeRecord(
                 fq_name=node_fq_name,
                 parameter_names=managed_parameter_names,
