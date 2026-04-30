@@ -755,7 +755,7 @@ mission:
     max: 1.0
   mission_done_select_mode:
     type: string
-    value: hold
+    value: land
     options:
     - land
     - hold
