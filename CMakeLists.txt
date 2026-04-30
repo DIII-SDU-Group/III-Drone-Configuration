@@ -30,6 +30,7 @@ link_directories(src/matlab_MPC_5Hz_hp10)
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(rcl_interfaces REQUIRED)
@@ -132,6 +133,7 @@ target_link_libraries(iii_drone_configuration_lib
 )
 
 ament_target_dependencies(iii_drone_configuration_lib
+  ament_index_cpp
   rclcpp
   rclcpp_lifecycle
   rcl_interfaces
@@ -199,9 +201,20 @@ set(python_programs
   "${PROJECT_NAME}/configuration_client_node.py"
 )
 
+set(python_entrypoint_wrappers
+  "${PROJECT_SOURCE_DIR}/scripts/configuration_server"
+  "${PROJECT_SOURCE_DIR}/scripts/configuration_client"
+)
+
 install(
   PROGRAMS ${python_programs}
+           ${python_entrypoint_wrappers}
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(
+  DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
 )
 
 if(BUILD_TESTING)
@@ -215,10 +228,10 @@ if(BUILD_TESTING)
     "${PROJECT_SOURCE_DIR}/config/parameters/parameter_manifest.yaml"
   )
   set(III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_REAL_FILE
-    "${PROJECT_SOURCE_DIR}/config/ros_params_real.yaml"
+    "${PROJECT_SOURCE_DIR}/config/parameter_sets/real/tracked/default.yaml"
   )
   set(III_DRONE_CONFIGURATION_PRODUCTION_ROS_PARAMS_SIM_FILE
-    "${PROJECT_SOURCE_DIR}/config/ros_params_sim.yaml"
+    "${PROJECT_SOURCE_DIR}/config/parameter_sets/sim/tracked/default.yaml"
   )
 
   ament_add_gtest(test_schema_validator
@@ -245,6 +258,7 @@ if(BUILD_TESTING)
   target_link_libraries(test_configurator iii_drone_configuration_lib)
   target_compile_definitions(test_configurator PRIVATE
     TEST_SCHEMA_FILE="${III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE}"
+    PRODUCTION_SCHEMA_FILE="${III_DRONE_CONFIGURATION_PRODUCTION_SCHEMA_FILE}"
   )
   ament_target_dependencies(test_configurator rclcpp rclcpp_lifecycle)
 
@@ -265,6 +279,13 @@ if(BUILD_TESTING)
     TEST_SCHEMA_FILE="${III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE}"
   )
   ament_target_dependencies(configurator_managed_test_node rclcpp rclcpp_lifecycle)
+
+  ament_add_pytest_test(
+    test_python_schema_utils
+    "${PROJECT_SOURCE_DIR}/test/test_schema_utils.py"
+    APPEND_ENV
+      PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+  )
 
   ament_add_pytest_test(
     test_python_configuration
@@ -296,5 +317,12 @@ if(BUILD_TESTING)
     "${PROJECT_SOURCE_DIR}/test/test_configuration_e2e.py"
     APPEND_ENV
       PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+    ENV
+      ROS_DOMAIN_ID=221
+  )
+
+  ament_add_pytest_test(
+    test_python_install_layout
+    "${PROJECT_SOURCE_DIR}/test/test_install_layout.py"
   )
 endif()

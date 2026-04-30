@@ -3,12 +3,15 @@
 #include <iii_drone_configuration/configurator.hpp>
 
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <type_traits>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
+
+#include <unistd.h>
 
 using iii_drone::configuration::Configurator;
 using iii_drone::configuration::configuration_entry_t;
@@ -48,6 +51,78 @@ protected:
 using ConfiguratorNodeTypes = ::testing::Types<rclcpp::Node, rclcpp_lifecycle::LifecycleNode>;
 TYPED_TEST_SUITE(ConfiguratorTypedTest, ConfiguratorNodeTypes);
 
+namespace {
+
+std::string WorkspaceRootFromProductionSchema()
+{
+    return std::filesystem::path(PRODUCTION_SCHEMA_FILE)
+        .parent_path()
+        .parent_path()
+        .parent_path()
+        .parent_path()
+        .parent_path()
+        .string();
+}
+
+}  // namespace
+
+TEST(ConfiguratorPathResolutionTest, FallsBackToWorkspaceSourceSchemaWhenRuntimeConfigIsUnseeded)
+{
+    if (!rclcpp::ok()) {
+        rclcpp::init(0, nullptr);
+    }
+
+    const char * previous_schema_file = std::getenv("III_DRONE_SCHEMA_FILE");
+    const std::string previous_schema_file_value = previous_schema_file != nullptr ? previous_schema_file : "";
+    const char * previous_config_base = std::getenv("CONFIG_BASE_DIR");
+    const std::string previous_config_base_value = previous_config_base != nullptr ? previous_config_base : "";
+    const char * previous_workspace_dir = std::getenv("WORKSPACE_DIR");
+    const std::string previous_workspace_dir_value = previous_workspace_dir != nullptr ? previous_workspace_dir : "";
+    const char * previous_simulation = std::getenv("SIMULATION");
+    const std::string previous_simulation_value = previous_simulation != nullptr ? previous_simulation : "";
+
+    const auto temp_config_base = std::filesystem::temp_directory_path() /
+        ("iii_configurator_test_" + std::to_string(::getpid()));
+    std::filesystem::remove_all(temp_config_base);
+    std::filesystem::create_directories(temp_config_base);
+
+    unsetenv("III_DRONE_SCHEMA_FILE");
+    setenv("CONFIG_BASE_DIR", temp_config_base.string().c_str(), 1);
+    setenv("WORKSPACE_DIR", WorkspaceRootFromProductionSchema().c_str(), 1);
+    setenv("SIMULATION", "true", 1);
+
+    auto node = std::make_shared<rclcpp::Node>("configurator_source_fallback_test");
+    EXPECT_NO_THROW({
+        Configurator<rclcpp::Node> configurator(node.get(), node->get_name());
+        configurator.DeclareParameter(
+            "/perception/hough_transformer/canny_low_threshold",
+            rclcpp::ParameterType::PARAMETER_INTEGER
+        );
+    });
+
+    std::filesystem::remove_all(temp_config_base);
+    if (previous_schema_file != nullptr) {
+        setenv("III_DRONE_SCHEMA_FILE", previous_schema_file_value.c_str(), 1);
+    } else {
+        unsetenv("III_DRONE_SCHEMA_FILE");
+    }
+    if (previous_config_base != nullptr) {
+        setenv("CONFIG_BASE_DIR", previous_config_base_value.c_str(), 1);
+    } else {
+        unsetenv("CONFIG_BASE_DIR");
+    }
+    if (previous_workspace_dir != nullptr) {
+        setenv("WORKSPACE_DIR", previous_workspace_dir_value.c_str(), 1);
+    } else {
+        unsetenv("WORKSPACE_DIR");
+    }
+    if (previous_simulation != nullptr) {
+        setenv("SIMULATION", previous_simulation_value.c_str(), 1);
+    } else {
+        unsetenv("SIMULATION");
+    }
+}
+
 TYPED_TEST(ConfiguratorTypedTest, DeclaresManagedParametersWithSchemaDefaults)
 {
     auto * configurator = new Configurator<TypeParam>(this->node_, this->node_->get_name());
@@ -58,6 +133,18 @@ TYPED_TEST(ConfiguratorTypedTest, DeclaresManagedParametersWithSchemaDefaults)
     EXPECT_TRUE(this->node_->has_parameter("/control/gains/p"));
     EXPECT_DOUBLE_EQ(this->node_->get_parameter("/control/gains/p").as_double(), 1.5);
     EXPECT_NO_THROW(configurator->validate());
+}
+
+TYPED_TEST(ConfiguratorTypedTest, UsesSchemaDefaultsForUndeclaredExpressionReferences)
+{
+    auto * configurator = new Configurator<TypeParam>(this->node_, this->node_->get_name());
+    (void)configurator;
+
+    configurator->DeclareParameter("/control/gains/i", rclcpp::ParameterType::PARAMETER_DOUBLE);
+
+    EXPECT_NO_THROW(configurator->validate());
+    const auto result = this->node_->set_parameter(rclcpp::Parameter("/control/gains/i", 0.4));
+    EXPECT_TRUE(result.successful);
 }
 
 TYPED_TEST(ConfiguratorTypedTest, RejectsInvalidRuntimeUpdates)
@@ -73,6 +160,8 @@ TYPED_TEST(ConfiguratorTypedTest, RejectsInvalidRuntimeUpdates)
             rclcpp::ParameterType::PARAMETER_STRING,
         }
     );
+
+    ASSERT_NO_THROW(configurator->validate());
 
     auto result = this->node_->set_parameter(rclcpp::Parameter("/control/gains/i", 2.0));
     EXPECT_FALSE(result.successful);

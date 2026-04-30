@@ -6,8 +6,8 @@ It provides:
 - the schema and validation source of truth for managed parameters
 - local-first `Configurator` helpers for C++ and Python nodes
 - `Configuration` read-only live views for nested subsystems
-- an optional configuration server for discovery, synchronization, and snapshot save/load
-- the canonical manifest and ROS parameter override files used by the rest of the workspace
+- an optional configuration server for discovery, synchronization, live runtime updates, and parameter-set persistence
+- the canonical manifest and parameter-set files used by the rest of the workspace
 
 ## Current Design
 
@@ -61,20 +61,32 @@ The manifest uses hierarchical YAML, but managed parameter identities are canoni
 - `/tf/world_frame_id`
 - `/perception/pl_mapper/kf_r`
 
-### ROS Parameter Files
+### Profiles And Parameter Sets
 
-ROS parameter files store effective runtime values and can be loaded directly by ROS 2 launch or CLI tooling.
+The runtime configuration now separates:
+- profile selection
+- actual parameter values
 
-Files:
-- [`config/ros_params_real.yaml`](./config/ros_params_real.yaml)
-- [`config/ros_params_sim.yaml`](./config/ros_params_sim.yaml)
+Source defaults:
+- [`config/profiles/real.yaml`](./config/profiles/real.yaml)
+- [`config/profiles/sim.yaml`](./config/profiles/sim.yaml)
+- [`config/parameter_sets/real/tracked/default.yaml`](./config/parameter_sets/real/tracked/default.yaml)
+- [`config/parameter_sets/sim/tracked/default.yaml`](./config/parameter_sets/sim/tracked/default.yaml)
 
-These files contain flattened ROS parameter keys under `/**: ros__parameters:`.
+At runtime these are seeded into:
+- `~/.config/iii_drone/profiles/<profile>.yaml`
+- `~/.config/iii_drone/parameter_sets/<profile>/tracked/*.yaml`
+- `~/.config/iii_drone/parameter_sets/<profile>/snapshots/*.yaml`
 
-They are used for:
-- environment-specific startup values
-- reproducible runtime snapshots
-- operator save/load flows through the configuration server
+The selector file is the authority for which parameter set is active:
+
+```yaml
+version: 1
+active_parameter_set: tracked/default.yaml
+```
+
+Every parameter-set file is a standalone ROS parameter file with flattened keys under `/**: ros__parameters:`.
+Parameter-set files never point to other parameter-set files.
 
 ### Configurator
 
@@ -124,8 +136,10 @@ Current responsibilities:
 - infer shared parameters by canonical full name
 - synchronize late-joining nodes
 - keep server-owned runtime values converged while the server is active
-- reject operator changes if nodes reject them
-- save and load ROS parameter snapshot files
+- reject live operator changes unless every affected running node applies the change
+- reject live updates for boot-only parameters
+- save and load full parameter-set files
+- maintain an automatic runtime parameter-set snapshot after successful live operator changes
 
 Implementation:
 - [`iii_drone_configuration/configuration_server_node.py`](./iii_drone_configuration/configuration_server_node.py)
@@ -167,12 +181,11 @@ self.configurator.declare_parameter("/tf/world_frame_id", rclpy.parameter.Parame
 self.configurator.validate()
 ```
 
-## Environment and Path Resolution
+## Environment And Path Resolution
 
 Schema resolution is controlled by:
 - `III_DRONE_SCHEMA_FILE`
 - `CONFIG_BASE_DIR`
-- `SIMULATION`
 
 By default, the package resolves the schema to:
 - `~/.config/iii_drone/parameters/parameter_manifest.yaml`
@@ -182,15 +195,10 @@ unless overridden.
 Helpers:
 - [`iii_drone_configuration/schema_utils.py`](./iii_drone_configuration/schema_utils.py)
 
-`Configurator` also declares unmanaged support parameters when missing:
-- `parameters_path_postfix`
-- `default_parameter_file`
-- `sim_parameter_file`
-
-The configuration server additionally uses:
-- `parameter_snapshots_path_postfix`
-- `default_snapshot_file`
-- `sim_snapshot_file`
+Active parameter-set resolution is controlled by:
+- `SIMULATION`, which selects the `sim` or `real` profile
+- `~/.config/iii_drone/profiles/<profile>.yaml`, which points at the active parameter set
+- `III_SYSTEM_PARAMETER_FILE`, only as an explicit override/debug escape hatch
 
 ## Package Layout
 
@@ -215,8 +223,10 @@ The configuration server additionally uses:
 ### Config files
 
 - [`config/parameters/parameter_manifest.yaml`](./config/parameters/parameter_manifest.yaml)
-- [`config/ros_params_real.yaml`](./config/ros_params_real.yaml)
-- [`config/ros_params_sim.yaml`](./config/ros_params_sim.yaml)
+- [`config/profiles/real.yaml`](./config/profiles/real.yaml)
+- [`config/profiles/sim.yaml`](./config/profiles/sim.yaml)
+- [`config/parameter_sets/real/tracked/default.yaml`](./config/parameter_sets/real/tracked/default.yaml)
+- [`config/parameter_sets/sim/tracked/default.yaml`](./config/parameter_sets/sim/tracked/default.yaml)
 
 ### Scripts
 

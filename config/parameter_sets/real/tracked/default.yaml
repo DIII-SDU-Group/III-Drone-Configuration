@@ -1,12 +1,5 @@
 /**:
   ros__parameters:
-    parameters_path_postfix: parameters/
-    default_parameter_file: parameter_manifest.yaml
-    sim_parameter_file: parameter_manifest.yaml
-    parameter_snapshots_path_postfix: parameter_snapshots/
-    default_snapshot_file: default_snapshot.yaml
-    sim_snapshot_file: sim_snapshot.yaml
-    use_sim_time: true
     /perception/begin_running: false
     /perception/hough_transformer/canny_low_threshold: 50
     /perception/hough_transformer/canny_ratio: 4
@@ -170,7 +163,7 @@
     /mission/wait_for_maneuver_start_timeout_ms: 1000
     /mission/get_reference_timeout_ms: 150
     /mission/manual_stick_input_threshold: 0.35
-    /mission/mission_done_select_mode: land
+    /mission/mission_done_select_mode: hold
     /behavior/server_timeout_ms: 60000
     /behavior/wait_for_server_timeout_ms: 60000
     /behavior/tick_period_ms: 10

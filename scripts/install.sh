@@ -16,6 +16,8 @@ else
 fi
 
 mkdir -p $target_config_dir/iii_drone/parameters/
+mkdir -p $target_config_dir/iii_drone/profiles/
+mkdir -p $target_config_dir/iii_drone/parameter_sets/
 
 if [ ! -f $target_config_dir/iii_drone/parameters/parameter_manifest.yaml ]; then
     cp $CONFIG_DIR/parameters/parameter_manifest.yaml $target_config_dir/iii_drone/parameters/parameter_manifest.yaml
@@ -23,10 +25,5 @@ fi
 
 $SCRIPT_DIR/update_installed_parameters.py $CONFIG_DIR/parameters/parameter_manifest.yaml $target_config_dir/iii_drone/parameters/
 
-if [ ! -f $target_config_dir/iii_drone/ros_params_real.yaml ]; then
-    cp -f $CONFIG_DIR/ros_params_real.yaml $target_config_dir/iii_drone/ros_params_real.yaml
-fi
-
-if [ ! -f $target_config_dir/iii_drone/ros_params_sim.yaml ]; then
-    cp -f $CONFIG_DIR/ros_params_sim.yaml $target_config_dir/iii_drone/ros_params_sim.yaml
-fi
+cp -rn $CONFIG_DIR/profiles/. $target_config_dir/iii_drone/profiles/
+cp -rn $CONFIG_DIR/parameter_sets/. $target_config_dir/iii_drone/parameter_sets/

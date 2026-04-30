@@ -120,10 +120,15 @@ It is not part of mandatory startup anymore.
 
 - `config/parameters/parameter_manifest.yaml`
 
+### Profile selectors
+
+- `config/profiles/real.yaml`
+- `config/profiles/sim.yaml`
+
 ### Runtime value files
 
-- `config/ros_params_real.yaml`
-- `config/ros_params_sim.yaml`
+- `config/parameter_sets/real/tracked/default.yaml`
+- `config/parameter_sets/sim/tracked/default.yaml`
 
 ### Schema install/update support
 

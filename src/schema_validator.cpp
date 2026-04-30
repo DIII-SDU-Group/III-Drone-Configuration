@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cmath>
 #include <sstream>
 #include <stack>
@@ -29,6 +30,17 @@ bool IsExpressionString(const YAML::Node & node)
     }
 
     const std::string value = node.as<std::string>();
+    char * end = nullptr;
+    std::strtod(value.c_str(), &end);
+    if (end != value.c_str()) {
+        while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) {
+            ++end;
+        }
+        if (*end == '\0') {
+            return false;
+        }
+    }
+
     return value.find('/') != std::string::npos ||
            value.find('+') != std::string::npos ||
            value.find('-') != std::string::npos ||
@@ -154,9 +166,19 @@ void SchemaValidator::ValidateParameterValue(
     if (entry.min_value.has_value()) {
         const double current_value = ParameterValueToDouble(value);
         const YAML::Node & min_node = entry.min_value.value();
-        const double min_value = IsExpressionString(min_node)
-            ? EvaluateExpression(min_node.as<std::string>(), candidate_values)
-            : ParameterValueToDouble(ParameterValueFromYaml(min_node, entry.type));
+        double min_value = 0.0;
+        if (IsExpressionString(min_node)) {
+            try {
+                min_value = EvaluateExpression(min_node.as<std::string>(), candidate_values);
+            } catch (const std::exception & ex) {
+                throw std::runtime_error(
+                    "Parameter " + name + " has invalid minimum schema expression '" +
+                    min_node.as<std::string>() + "': " + ex.what()
+                );
+            }
+        } else {
+            min_value = ParameterValueToDouble(ParameterValueFromYaml(min_node, entry.type));
+        }
 
         if (current_value < min_value) {
             throw std::runtime_error("Parameter " + name + " is below schema minimum");
@@ -166,9 +188,19 @@ void SchemaValidator::ValidateParameterValue(
     if (entry.max_value.has_value()) {
         const double current_value = ParameterValueToDouble(value);
         const YAML::Node & max_node = entry.max_value.value();
-        const double max_value = IsExpressionString(max_node)
-            ? EvaluateExpression(max_node.as<std::string>(), candidate_values)
-            : ParameterValueToDouble(ParameterValueFromYaml(max_node, entry.type));
+        double max_value = 0.0;
+        if (IsExpressionString(max_node)) {
+            try {
+                max_value = EvaluateExpression(max_node.as<std::string>(), candidate_values);
+            } catch (const std::exception & ex) {
+                throw std::runtime_error(
+                    "Parameter " + name + " has invalid maximum schema expression '" +
+                    max_node.as<std::string>() + "': " + ex.what()
+                );
+            }
+        } else {
+            max_value = ParameterValueToDouble(ParameterValueFromYaml(max_node, entry.type));
+        }
 
         if (current_value > max_value) {
             throw std::runtime_error("Parameter " + name + " is above schema maximum");

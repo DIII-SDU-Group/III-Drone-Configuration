@@ -106,7 +106,6 @@ perception:
     use_inter_line_positions:
       type: bool
       value: true
-
 control:
   maneuver_controller:
     ground_estimate_window_size:

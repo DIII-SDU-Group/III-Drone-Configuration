@@ -13,11 +13,11 @@ from rclpy import executors, lifecycle
 from rclpy.node import Node
 from rclpy.parameter import Parameter, parameter_value_to_python
 
-from iii_drone_interfaces.srv import GetDeclaredParameters, LoadParameters, SetParameterFromGC
+from iii_drone_interfaces.srv import GetDeclaredParameters, LoadParameters, SaveParameters, SetParameterFromGC
 from iii_drone_configuration.configuration_server_node import ConfigurationServer
 from iii_drone_configuration.configurator import Configurator
 
-from conftest import TEST_SCHEMA_FILE
+from conftest import TEST_SCHEMA_FILE, write_bootstrap_parameter_file
 
 
 def wait_until(predicate, timeout=5.0, period=0.05, message="condition not met"):
@@ -27,6 +27,18 @@ def wait_until(predicate, timeout=5.0, period=0.05, message="condition not met")
             return
         time.sleep(period)
     raise AssertionError(message)
+
+
+def _resolve_cpp_test_executable() -> Path:
+    workspace_root = Path(__file__).resolve().parents[3]
+    candidates = (
+        workspace_root / "build" / "iii_drone_configuration" / "configurator_managed_test_node",
+        workspace_root / "configurator_managed_test_node",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 class ExecutorHarness:
@@ -43,15 +55,8 @@ class ExecutorHarness:
         self.executor.add_node(node)
 
     def shutdown(self):
-        for node in reversed(self.nodes):
-            configurator = getattr(node, "_test_configurator", None)
-            if configurator is not None:
-                configurator.cleanup()
-            self.executor.remove_node(node)
-            node.destroy_node()
-        self.nodes.clear()
+        managed_nodes = list(reversed(self.nodes))
 
-        self.executor.remove_node(self.server)
         try:
             self.server.trigger_deactivate()
         except Exception:
@@ -60,9 +65,22 @@ class ExecutorHarness:
             self.server.trigger_cleanup()
         except Exception:
             pass
-        self.server.destroy_node()
-        self.executor.shutdown()
+
+        for node in managed_nodes:
+            self.executor.remove_node(node)
+        self.nodes.clear()
+
+        self.executor.remove_node(self.server)
+        self.executor.shutdown(timeout_sec=2.0)
         self._thread.join(timeout=2.0)
+
+        for node in managed_nodes:
+            configurator = getattr(node, "_test_configurator", None)
+            if configurator is not None:
+                configurator.cleanup()
+            node.destroy_node()
+
+        self.server.destroy_node()
 
 
 def make_managed_node(node_cls, name):
@@ -82,6 +100,17 @@ def call_service(client_node, srv_type, service_name, request):
     try:
         wait_until(lambda: client.wait_for_service(timeout_sec=0.1), timeout=5.0, message=f"{service_name} unavailable")
         future = client.call_async(request)
+        try:
+            future._set_executor(None)
+        except Exception:
+            pass
+        def consume_completed_future(completed_future):
+            try:
+                completed_future.result()
+            except Exception:
+                pass
+
+        future.add_done_callback(consume_completed_future)
         wait_until(lambda: future.done(), timeout=5.0, message=f"{service_name} call timed out")
         return future.result()
     finally:
@@ -99,6 +128,8 @@ def get_remote_parameter(client_node, node_fq_name, parameter_name):
 def running_graph(monkeypatch, tmp_path):
     monkeypatch.setenv("III_DRONE_SCHEMA_FILE", str(TEST_SCHEMA_FILE))
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("SIMULATION", "true")
+    write_bootstrap_parameter_file(tmp_path)
 
     server = ConfigurationServer(node_name="configuration_server_e2e", namespace="/configuration/configuration_server")
     assert server.trigger_configure().name == "SUCCESS"
@@ -151,6 +182,44 @@ def test_python_managed_nodes_sync_and_late_join(running_graph, node_cls):
 
 
 @pytest.mark.parametrize("node_cls", [Node, lifecycle.Node], ids=["node", "lifecycle_node"])
+def test_python_late_join_uses_new_default_after_runtime_state_is_saved(running_graph, node_cls):
+    harness, server, client_node, _ = running_graph
+
+    node_a = make_managed_node(node_cls, f"py_saved_default_a_{node_cls.__name__.replace('.', '_')}")
+    harness.add_node(node_a)
+    wait_until(lambda: node_a.get_fully_qualified_name() in server.node_registry, message="node_a not discovered")
+
+    set_request = SetParameterFromGC.Request()
+    set_request.parameter_name = "/control/gains/p"
+    set_request.parameter_string_value = "4.5"
+    set_response = call_service(
+        client_node,
+        SetParameterFromGC,
+        "/configuration/configuration_server/set_parameter_from_gc",
+        set_request,
+    )
+    assert set_response.success
+    wait_until(lambda: node_a.get_parameter("/control/gains/p").value == pytest.approx(4.5), message="node_a not synced")
+
+    save_request = SaveParameters.Request()
+    save_request.file = "saved_default.yaml"
+    save_request.set_as_default = True
+    save_request.overwrite = True
+    save_response = call_service(
+        client_node,
+        SaveParameters,
+        "/configuration/configuration_server/save_parameters",
+        save_request,
+    )
+    assert save_response.success
+
+    node_b = make_managed_node(node_cls, f"py_saved_default_b_{node_cls.__name__.replace('.', '_')}")
+    harness.add_node(node_b)
+    wait_until(lambda: node_b.get_fully_qualified_name() in server.node_registry, message="node_b not discovered")
+    wait_until(lambda: node_b.get_parameter("/control/gains/p").value == pytest.approx(4.5), message="late join node not using new default")
+
+
+@pytest.mark.parametrize("node_cls", [Node, lifecycle.Node], ids=["node", "lifecycle_node"])
 def test_python_managed_nodes_reject_invalid_updates_and_accept_snapshot_load(running_graph, node_cls):
     harness, server, client_node, tmp_path = running_graph
 
@@ -170,7 +239,7 @@ def test_python_managed_nodes_reject_invalid_updates_and_accept_snapshot_load(ru
     assert not invalid_response.success
     assert node.get_parameter("/control/gains/i").value == pytest.approx(0.3)
 
-    snapshot_path = tmp_path / "iii_drone" / "parameter_snapshots" / "e2e_snapshot.yaml"
+    snapshot_path = tmp_path / "iii_drone" / "parameter_sets" / "sim" / "snapshots" / "e2e_snapshot.yaml"
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
     snapshot_path.write_text(
         yaml.safe_dump(
@@ -206,7 +275,7 @@ def test_python_managed_nodes_reject_invalid_updates_and_accept_snapshot_load(ru
 def test_cpp_managed_node_discovers_and_syncs_with_server(running_graph, cpp_node_type):
     harness, server, client_node, _ = running_graph
 
-    executable = Path.cwd() / "configurator_managed_test_node"
+    executable = _resolve_cpp_test_executable()
     assert executable.exists(), f"Missing C++ test executable at {executable}"
 
     node_name = f"cpp_managed_{cpp_node_type}"
