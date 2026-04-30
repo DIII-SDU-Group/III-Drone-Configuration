@@ -243,6 +243,13 @@ void Configurator<nodeT>::validate() const
     }
     schema_validator_.ValidateParameterMap(getCurrentValuesWithSchemaDefaults(), true);
 
+    if (!on_set_parameters_callback_handle_) {
+        auto * self = const_cast<Configurator<nodeT> *>(this);
+        self->on_set_parameters_callback_handle_ = node_->add_on_set_parameters_callback(
+            std::bind(&Configurator<nodeT>::onSetParametersCallback, self, std::placeholders::_1)
+        );
+    }
+
     if (!managed_node_announced_) {
         const_cast<Configurator<nodeT> *>(this)->announceManagedNode();
     }

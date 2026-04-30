@@ -58,6 +58,23 @@ def test_parameter_handler_rejects_invalid_expression_and_constant_updates():
         handler.can_set_param("/control/immutable_name", "beta")
 
 
+def test_parameter_handler_accepts_negative_numeric_bounds(tmp_path):
+    schema_path = tmp_path / "negative_bounds.yaml"
+    schema_path.write_text(
+        """
+control:
+  yaw_rate:
+    type: float
+    value: 0.0
+    min: -3.1415
+    max: 3.1415
+"""
+    )
+
+    handler = ParameterHandler.from_parameter_file(str(schema_path))
+    assert handler.get_param_value("/control/yaw_rate") == pytest.approx(0.0)
+
+
 def test_parameter_handler_loads_from_yaml_string_and_serializes():
     raw_yaml = TEST_SCHEMA_FILE.read_text()
     handler = ParameterHandler.from_raw_yaml_string(raw_yaml)

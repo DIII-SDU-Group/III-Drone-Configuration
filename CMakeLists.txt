@@ -201,8 +201,14 @@ set(python_programs
   "${PROJECT_NAME}/configuration_client_node.py"
 )
 
+set(python_entrypoint_wrappers
+  "${PROJECT_SOURCE_DIR}/scripts/configuration_server"
+  "${PROJECT_SOURCE_DIR}/scripts/configuration_client"
+)
+
 install(
   PROGRAMS ${python_programs}
+           ${python_entrypoint_wrappers}
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -313,5 +319,10 @@ if(BUILD_TESTING)
       PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
     ENV
       ROS_DOMAIN_ID=221
+  )
+
+  ament_add_pytest_test(
+    test_python_install_layout
+    "${PROJECT_SOURCE_DIR}/test/test_install_layout.py"
   )
 endif()

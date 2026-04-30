@@ -45,6 +45,7 @@ def main():
 
     update_ph = ParameterHandler.from_parameter_file(args.parameter_file)
     
+    source_parameter_file = os.path.abspath(args.parameter_file)
     param_files = [
         os.path.join(
             args.parameter_install_dir, 
@@ -55,7 +56,8 @@ def main():
                 args.parameter_install_dir, 
                 f
             )
-        ) and validate_parameter_file_name(f)
+        ) and validate_parameter_file_name(f) and
+        os.path.abspath(os.path.join(args.parameter_install_dir, f)) != source_parameter_file
     ]
     
     all_update_params = update_ph.get_all_params()

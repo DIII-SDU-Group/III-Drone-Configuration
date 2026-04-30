@@ -218,7 +218,6 @@ class ConfigurationServer(Node):
             callback_group=self.cb_group,
         )
         self.reconcile_timer = self.create_timer(1.0, self.reconcile_nodes, callback_group=self.cb_group)
-        self.reconcile_nodes()
         return TransitionCallbackReturn.SUCCESS
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:

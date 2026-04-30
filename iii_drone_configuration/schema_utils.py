@@ -40,12 +40,24 @@ def resolve_profiles_dir() -> Path:
     return resolve_iii_config_dir() / "profiles"
 
 
+def resolve_profile_dir() -> Path:
+    return resolve_profiles_dir()
+
+
 def resolve_profile_selector_file(profile_name: str) -> Path:
     return resolve_profiles_dir() / f"{profile_name}.yaml"
 
 
+def resolve_profile_file(profile_name: str) -> Path:
+    return resolve_profile_selector_file(profile_name)
+
+
 def resolve_parameter_sets_dir(profile_name: str) -> Path:
     return resolve_iii_config_dir() / "parameter_sets" / profile_name
+
+
+def resolve_parameter_set_dir(profile_name: str) -> Path:
+    return resolve_parameter_sets_dir(profile_name)
 
 
 def resolve_tracked_parameter_set_path(profile_name: str) -> Path:
@@ -162,18 +174,23 @@ def build_parameter_file_data(parameter_values: dict[str, object]) -> dict:
     }
 
 
-def resolve_schema_file() -> Path:
+def resolve_schema_file(
+    parameters_path_postfix: str = "parameters/",
+    default_parameter_file: str = "parameter_manifest.yaml",
+    sim_parameter_file: str = "parameter_manifest.yaml",
+) -> Path:
     explicit_file = os.environ.get("III_DRONE_SCHEMA_FILE")
     if explicit_file:
         return Path(os.path.expanduser(explicit_file))
 
-    configured = resolve_schema_parameters_dir() / "parameter_manifest.yaml"
+    file_name = sim_parameter_file if is_simulation() else default_parameter_file
+    configured = resolve_iii_config_dir() / Path(parameters_path_postfix) / file_name
     if configured.exists():
         return configured
 
     source_config_dir = _source_config_dir()
     if source_config_dir is not None:
-        source_copy = source_config_dir / "parameters" / "parameter_manifest.yaml"
+        source_copy = source_config_dir / Path(parameters_path_postfix) / file_name
         if source_copy.exists():
             return source_copy
 
@@ -324,6 +341,10 @@ def seed_runtime_configuration(profile_name: str, *, overwrite: bool = False) ->
 
 def resolve_parameter_snapshot_dir(profile_name: str) -> Path:
     return resolve_parameter_sets_dir(profile_name) / "snapshots"
+
+
+def resolve_snapshot_dir(snapshot_path_postfix: str = "parameter_snapshots/") -> Path:
+    return resolve_iii_config_dir() / snapshot_path_postfix
 
 
 def resolve_default_parameter_file_name(profile_name: str) -> str:

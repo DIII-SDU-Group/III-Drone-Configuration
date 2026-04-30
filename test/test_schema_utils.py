@@ -69,3 +69,21 @@ def test_persist_default_parameter_file_name_updates_bootstrap_file(monkeypatch,
 
     assert resolve_default_parameter_file_name("sim") == "snapshots/next.yaml"
     assert "snapshots/next.yaml" in selector.read_text(encoding="utf-8")
+
+
+def test_resolve_active_parameter_file_uses_profile_pointer(monkeypatch, tmp_path):
+    monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+
+    config_dir = tmp_path / "iii_drone"
+    profile_dir = config_dir / "profiles"
+    parameter_set_dir = config_dir / "parameter_sets" / "sim" / "tracked"
+    profile_dir.mkdir(parents=True)
+    parameter_set_dir.mkdir(parents=True)
+
+    active_file = parameter_set_dir / "default.yaml"
+    active_file.write_text("/**:\n  ros__parameters: {}\n")
+    (profile_dir / "sim.yaml").write_text("version: 1\nactive_parameter_set: tracked/default.yaml\n")
+
+    seed_runtime_configuration("sim")
+
+    assert resolve_active_parameter_file("sim") == active_file

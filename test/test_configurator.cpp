@@ -161,6 +161,8 @@ TYPED_TEST(ConfiguratorTypedTest, RejectsInvalidRuntimeUpdates)
         }
     );
 
+    ASSERT_NO_THROW(configurator->validate());
+
     auto result = this->node_->set_parameter(rclcpp::Parameter("/control/gains/i", 2.0));
     EXPECT_FALSE(result.successful);
 
