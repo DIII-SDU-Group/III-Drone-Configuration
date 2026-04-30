@@ -101,9 +101,9 @@ private:
 
     std::unordered_map<std::string, rclcpp::ParameterValue> getCurrentManagedParameterValues() const;
 
-    std::string resolveSchemaFilePath();
+    std::unordered_map<std::string, rclcpp::ParameterValue> getCurrentValuesWithSchemaDefaults() const;
 
-    void declareSupportParameterIfMissing(const std::string & name, const std::string & default_value);
+    std::string resolveSchemaFilePath();
 
     void announceManagedNode() const;
 };

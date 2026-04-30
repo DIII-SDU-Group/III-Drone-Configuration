@@ -106,7 +106,6 @@ perception:
     use_inter_line_positions:
       type: bool
       value: true
-
 control:
   maneuver_controller:
     ground_estimate_window_size:
@@ -756,7 +755,7 @@ mission:
     max: 1.0
   mission_done_select_mode:
     type: string
-    value: land
+    value: hold
     options:
     - land
     - hold

@@ -87,6 +87,17 @@ TEST(SchemaValidatorTest, LoadsProductionSchemaFile)
     EXPECT_TRUE(validator.HasParameter("/payload/charger_gripper/gripper_command_interface"));
 }
 
+TEST(SchemaValidatorTest, ProductionSchemaDefaultsValidate)
+{
+    const auto validator = SchemaValidator::FromFile(PRODUCTION_SCHEMA_FILE);
+    std::unordered_map<std::string, rclcpp::ParameterValue> values;
+    for (const auto & [name, entry] : validator.parameters()) {
+        values.emplace(name, entry.default_value);
+    }
+
+    EXPECT_NO_THROW(validator.ValidateParameterMap(values, true));
+}
+
 TEST(SchemaValidatorTest, ProductionRosParamFilesOnlyReferenceManagedSchemaKeys)
 {
     const auto validator = SchemaValidator::FromFile(PRODUCTION_SCHEMA_FILE);
@@ -98,17 +109,6 @@ TEST(SchemaValidatorTest, ProductionRosParamFilesOnlyReferenceManagedSchemaKeys)
 
         for (const auto & item : ros_parameters) {
             const auto name = item.first.as<std::string>();
-
-            if (name == "default_snapshot_file" ||
-                name == "sim_snapshot_file" ||
-                name == "parameters_path_postfix" ||
-                name == "default_parameter_file" ||
-                name == "sim_parameter_file" ||
-                name == "parameter_snapshots_path_postfix" ||
-                name == "use_sim_time") {
-                continue;
-            }
-
             EXPECT_TRUE(validator.HasParameter(name)) << "Unexpected production ros param key: " << name;
         }
     }

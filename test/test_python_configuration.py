@@ -62,6 +62,21 @@ def test_configurator_declares_schema_default_and_validates(managed_node):
             configurator.cleanup()
 
 
+def test_configurator_validates_partial_parameter_sets_with_schema_defaults(managed_node):
+    configurator = None
+
+    try:
+        configurator = Configurator(managed_node)
+        configurator.declare_parameter("/control/gains/i", Parameter.Type.DOUBLE)
+
+        configurator.validate()
+        success = configurator.on_set_parameters_callback([Parameter("/control/gains/i", value=0.4)])
+        assert success.successful
+    finally:
+        if configurator is not None:
+            configurator.cleanup()
+
+
 def test_configuration_reads_latest_values(managed_node):
     configurator = None
 
