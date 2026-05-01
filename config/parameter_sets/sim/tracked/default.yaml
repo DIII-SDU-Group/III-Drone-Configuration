@@ -15,7 +15,7 @@
     /perception/pl_mapper/alive_cnt_ceiling: 150
     /perception/pl_mapper/min_point_dist: 0.99
     /perception/pl_mapper/max_point_dist: 20.0
-    /perception/pl_mapper/view_cone_slope: 0.55
+    /perception/pl_mapper/view_cone_slope: 0.7
     /perception/pl_mapper/strict_min_point_dist: 1.0
     /perception/pl_mapper/strict_max_point_dist: 18.0
     /perception/pl_mapper/strict_view_cone_slope: 0.75
