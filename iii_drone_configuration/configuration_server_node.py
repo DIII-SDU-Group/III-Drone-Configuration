@@ -61,6 +61,8 @@ class ManagedNodeRecord:
     fq_name: str
     parameter_names: list[str] = field(default_factory=list)
     values: dict[str, object] = field(default_factory=dict)
+    last_seen_monotonic: float = 0.0
+    offline_since_monotonic: Optional[float] = None
 
 
 ###############################################################################
@@ -70,6 +72,7 @@ class ManagedNodeRecord:
 
 class ConfigurationServer(Node):
     _RUNTIME_SNAPSHOT_PREFIX = "runtime_parameters_"
+    _OFFLINE_PRUNE_GRACE_SEC = 10.0
 
     def __init__(
         self,
@@ -89,6 +92,7 @@ class ConfigurationServer(Node):
         self.server_values: dict[str, object] = {}
         self.node_registry: dict[str, ManagedNodeRecord] = {}
         self._state_lock = threading.RLock()
+        self._reconcile_lock = threading.Lock()
         self.current_parameter_file: str = ""
         self._default_parameter_file_path: Optional[Path] = None
         self._boot_server_values: dict[str, object] = {}
@@ -217,7 +221,9 @@ class ConfigurationServer(Node):
             10,
             callback_group=self.cb_group,
         )
-        self.reconcile_timer = self.create_timer(1.0, self.reconcile_nodes, callback_group=self.cb_group)
+        with self._state_lock:
+            self.pending_node_notifications.update(self._get_node_fq_names())
+        self.reconcile_timer = self.create_timer(2.0, self.reconcile_nodes, callback_group=self.cb_group)
         return TransitionCallbackReturn.SUCCESS
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
@@ -369,19 +375,30 @@ class ConfigurationServer(Node):
             self.destroy_client(client)
 
     def reconcile_nodes(self) -> None:
-        with self._state_lock:
-            if self.parameter_handler is None:
-                return
+        if not self._reconcile_lock.acquire(blocking=False):
+            return
 
-            discovered_fq_names = set(self._get_node_fq_names())
+        try:
+            with self._state_lock:
+                if self.parameter_handler is None:
+                    return
+                managed_keys = set(self.managed_keys)
+                server_values = dict(self.server_values)
+                pending_node_notifications = set(self.pending_node_notifications)
+                full_graph_scan = not pending_node_notifications
+                target_fq_names = pending_node_notifications or set(self._get_node_fq_names())
+
+            now_monotonic = time.monotonic()
+            discovered_fq_names = set(target_fq_names)
             discovered_fq_names.discard(self.get_fully_qualified_name())
+            discovered_records: dict[str, ManagedNodeRecord] = {}
 
             for node_fq_name in sorted(discovered_fq_names):
                 parameter_names = self._call_list_parameters(node_fq_name)
                 if parameter_names is None:
                     continue
 
-                managed_parameter_names = sorted(set(parameter_names).intersection(self.managed_keys))
+                managed_parameter_names = sorted(set(parameter_names).intersection(managed_keys))
                 if not managed_parameter_names:
                     continue
 
@@ -390,7 +407,7 @@ class ConfigurationServer(Node):
                     continue
 
                 authoritative_values = {
-                    parameter_name: self.server_values[parameter_name]
+                    parameter_name: server_values[parameter_name]
                     for parameter_name in managed_parameter_names
                 }
 
@@ -413,17 +430,35 @@ class ConfigurationServer(Node):
 
                     values[parameter_name] = authoritative_value
 
-                self.node_registry[node_fq_name] = ManagedNodeRecord(
+                discovered_records[node_fq_name] = ManagedNodeRecord(
                     fq_name=node_fq_name,
                     parameter_names=managed_parameter_names,
                     values=dict(authoritative_values),
+                    last_seen_monotonic=now_monotonic,
                 )
 
-            offline_nodes = set(self.node_registry.keys()) - discovered_fq_names
-            for node_fq_name in offline_nodes:
-                del self.node_registry[node_fq_name]
+            with self._state_lock:
+                for node_fq_name, record in discovered_records.items():
+                    record.offline_since_monotonic = None
+                    self.node_registry[node_fq_name] = record
 
-            self.pending_node_notifications.clear()
+                if full_graph_scan:
+                    for node_fq_name in list(self.node_registry.keys()):
+                        record = self.node_registry[node_fq_name]
+                        if node_fq_name in discovered_fq_names:
+                            record.offline_since_monotonic = None
+                            continue
+
+                        if record.offline_since_monotonic is None:
+                            record.offline_since_monotonic = now_monotonic
+                            continue
+
+                        if now_monotonic - record.offline_since_monotonic >= self._OFFLINE_PRUNE_GRACE_SEC:
+                            del self.node_registry[node_fq_name]
+
+                self.pending_node_notifications.clear()
+        finally:
+            self._reconcile_lock.release()
 
     def _group_nodes_for_parameter(self, parameter_name: str) -> list[str]:
         with self._state_lock:
@@ -885,11 +920,13 @@ class ConfigurationServer(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = ConfigurationServer()
-    executor = rclpy.executors.MultiThreadedExecutor()
+    executor = rclpy.executors.MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
 
     try:
-        executor.spin()
+        while rclpy.ok():
+            executor.spin_once(timeout_sec=0.1)
+            time.sleep(0.02)
     except KeyboardInterrupt:
         node.get_logger().info("Configuration server received shutdown signal.")
     finally:

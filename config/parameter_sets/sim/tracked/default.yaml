@@ -13,13 +13,13 @@
     /perception/pl_mapper/alive_cnt_low_thresh: 0
     /perception/pl_mapper/alive_cnt_high_thresh: 60
     /perception/pl_mapper/alive_cnt_ceiling: 150
-    /perception/pl_mapper/min_point_dist: 0.99
+    /perception/pl_mapper/min_point_dist: 0.09
     /perception/pl_mapper/max_point_dist: 20.0
-    /perception/pl_mapper/view_cone_slope: 0.7
-    /perception/pl_mapper/strict_min_point_dist: 1.0
+    /perception/pl_mapper/view_cone_slope: 0.85
+    /perception/pl_mapper/strict_min_point_dist: 0.15
     /perception/pl_mapper/strict_max_point_dist: 18.0
-    /perception/pl_mapper/strict_view_cone_slope: 0.75
-    /perception/pl_mapper/matching_line_max_dist: 3.0
+    /perception/pl_mapper/strict_view_cone_slope: 0.9
+    /perception/pl_mapper/matching_line_max_dist: 1.0
     /perception/pl_mapper/predict_callback_period_ms: 25
     /perception/pl_mapper/max_lines: 10
     /perception/pl_mapper/inter_pos_window_size: 5
@@ -47,30 +47,57 @@
     /control/maneuver_controller/hover_on_cable_default_yaw_rate: 0.0
     /control/maneuver_controller/maneuver_wait_for_execute_poll_ms: 100
     /control/maneuver_controller/maneuver_evaluate_done_poll_ms: 50
-    /control/maneuver_controller/reached_position_euclidean_distance_threshold: 0.2
-    /control/maneuver_controller/minimum_target_altitude: 1.0
+    /control/maneuver_controller/reached_position_euclidean_distance_threshold: 0.1
+    /control/maneuver_controller/fly_to_position_blend_radius: 1.0
+    /control/maneuver_controller/reached_yaw_error_threshold: 0.0872665
+    /control/maneuver_controller/minimum_target_altitude: 0.5
     /control/maneuver_controller/cable_landing_min_z_distance: 1.0
     /control/maneuver_controller/cable_landing_max_z_distance: 2.0
-    /control/maneuver_controller/cable_landing_max_initial_distance_error: 0.25
+    /control/maneuver_controller/cable_landing_max_initial_distance_error: 2.0
     /control/maneuver_controller/cable_landing_max_initial_yaw_error: 0.314159265
     /control/maneuver_controller/cable_landing_safety_zone_radius: 0.5
-    /control/maneuver_controller/cable_landing_safety_margin_max_xy_position_error: 0.1
+    /control/maneuver_controller/cable_landing_safety_margin_max_xy_position_error: 0.4
     /control/maneuver_controller/cable_landing_safety_margin_max_xy_velocity: 0.5
     /control/maneuver_controller/cable_landing_safety_margin_max_yaw_error: 0.314159265
     /control/maneuver_controller/cable_landing_safety_margin_max_yaw_rate: 1.570796327
-    /control/maneuver_controller/cable_landing_safety_margin_max_negative_vertical_distance: 0.05
+    /control/maneuver_controller/cable_landing_safety_margin_max_negative_vertical_distance: 0.1
     /control/maneuver_controller/cable_landing_safety_margin_cone_slope: 1.0
-    /control/maneuver_controller/cable_landing_safety_margin_cone_tolerance: 0.05
+    /control/maneuver_controller/cable_landing_safety_margin_cone_tolerance: 0.35
+    /control/maneuver_controller/cable_landing_gripper_v_gate_apex_z: -0.16
+    /control/maneuver_controller/cable_landing_gripper_v_gate_reference_z: 0.03
+    /control/maneuver_controller/cable_landing_gripper_v_gate_half_width_at_reference_z: 0.18
+    /control/maneuver_controller/cable_landing_gripper_v_gate_center_y: 0.0
+    /control/maneuver_controller/cable_landing_gripper_v_gate_violation_grace_s: 0.8
     /control/maneuver_controller/cable_landing_reference_truncate_radius: 0.25
     /control/maneuver_controller/cable_landing_reached_position_euclidean_distance_threshold: 0.1
+    /control/maneuver_controller/cable_landing_controller_type: mpc
+    /control/maneuver_controller/cable_landing_line_pid_ascent_velocity: 0.20
+    /control/maneuver_controller/cable_landing_line_pid_max_along_velocity: 0.01
+    /control/maneuver_controller/cable_landing_line_pid_max_cross_velocity: 0.12
+    /control/maneuver_controller/cable_landing_line_pid_max_yaw_rate: 0.35
+    /control/maneuver_controller/cable_landing_line_pid_max_dt_s: 0.20
+    /control/maneuver_controller/cable_landing_line_pid_along_kp: 0.0
+    /control/maneuver_controller/cable_landing_line_pid_along_ki: 0.0
+    /control/maneuver_controller/cable_landing_line_pid_along_kd: 0.0
+    /control/maneuver_controller/cable_landing_line_pid_along_integral_limit: 0.20
+    /control/maneuver_controller/cable_landing_line_pid_cross_kp: 0.55
+    /control/maneuver_controller/cable_landing_line_pid_cross_ki: 0.0
+    /control/maneuver_controller/cable_landing_line_pid_cross_kd: 0.0
+    /control/maneuver_controller/cable_landing_line_pid_cross_integral_limit: 0.05
+    /control/maneuver_controller/cable_landing_line_pid_yaw_kp: 1.20
+    /control/maneuver_controller/cable_landing_line_pid_yaw_ki: 0.0
+    /control/maneuver_controller/cable_landing_line_pid_yaw_kd: 0.05
+    /control/maneuver_controller/cable_landing_line_pid_yaw_integral_limit: 0.20
+    /control/maneuver_controller/cable_landing_target_lock_max_orthogonal_distance: 0.20
     /control/maneuver_controller/cable_takeoff_min_target_cable_distance: 0.5
-    /control/maneuver_controller/use_gripper_status_condition: false
+    /control/maneuver_controller/use_gripper_status_condition: true
     /control/maneuver_controller/cable_takeoff_max_target_cable_distance: 2.0
-    /control/maneuver_controller/generate_trajectories_asynchronously_with_delay: false
+    /control/maneuver_controller/generate_trajectories_asynchronously_with_delay: true
     /control/maneuver_controller/generate_trajectories_poll_period_ms: 5
-    /control/maneuver_controller/generate_trajectories_timeout_ms: 10
+    /control/maneuver_controller/generate_trajectories_timeout_ms: 1000
     /control/maneuver_controller/fly_to_position_use_mpc: false
-    /control/maneuver_controller/fly_to_object_use_mpc: true
+    /control/maneuver_controller/fly_to_object_use_mpc: false
+    /control/maneuver_controller/fly_to_object_target_low_pass_time_constant_s: 1.0
     /control/maneuver_controller/cable_landing_use_mpc: true
     /control/maneuver_controller/cable_takeoff_use_mpc: true
     /control/maneuver_controller/cable_landing_target_upwards_velocity: 0.5
@@ -131,7 +158,16 @@
     /control/trajectory_generator/cable_takeoff_MPC_wjx: 0.1
     /control/trajectory_generator/cable_takeoff_MPC_wjy: 0.1
     /control/trajectory_generator/cable_takeoff_MPC_wjz: 0.1
+    /control/trajectory_generator/cable_aware_grid_resolution_m: 0.5
+    /control/trajectory_generator/cable_aware_grid_margin_m: 3.0
+    /control/trajectory_generator/cable_aware_clearance_m: 1.0
+    /control/trajectory_generator/cable_aware_max_astar_expansions: 50000
     /control/trajectory_interpolator/interpolation_avg_velocity_m_s: 0.5
+    /control/trajectory_interpolator/interpolation_avg_yaw_rate_rad_s: 0.5
+    /control/trajectory_interpolator/interpolation_max_velocity_m_s: 1.0
+    /control/trajectory_interpolator/interpolation_max_acceleration_m_s2: 0.5
+    /control/trajectory_interpolator/interpolation_max_yaw_rate_rad_s: 0.75
+    /control/trajectory_interpolator/interpolation_max_yaw_acceleration_rad_s2: 0.75
     /control/trajectory_interpolator/reference_trajectory_length_N: 10
     /payload/charger_gripper/gripper_command_only: true
     /payload/charger_gripper/gripper_command_interface: gpio
@@ -161,9 +197,20 @@
     /mission/use_nans_when_hovering: true
     /mission/max_failed_attempts_during_maneuver: 3
     /mission/wait_for_maneuver_start_timeout_ms: 1000
-    /mission/get_reference_timeout_ms: 450
+    /mission/get_reference_timeout_ms: 150
     /mission/manual_stick_input_threshold: 0.1
     /mission/mission_done_select_mode: hold
+    /mission/bypass_battery_checks: false
+    /inspection_demo/inspection_clearance_m: 1.5
+    /inspection_demo/pylon_low_height_above_ground_m: 1.5
+    /inspection_demo/max_pylon_powerline_direction_mismatch_rad: 0.35
+    /inspection_demo/pylon_span_margin_m: 0.5
+    /inspection_demo/battery_topic_timeout_s: 2.0
+    /inspection_demo/battery_check_retry_count: 3
+    /inspection_demo/battery_check_retry_interval_s: 0.2
+    /inspection_demo/battery_voltage_threshold_v: 14.0
+    /inspection_demo/battery_voltage_debounce_s: 2.0
+    /cable_charging/minimum_stay_on_cable_s: 10.0
     /behavior/server_timeout_ms: 60000
     /behavior/wait_for_server_timeout_ms: 60000
     /behavior/tick_period_ms: 10
@@ -202,7 +249,7 @@
     - 0.4
     - 1.57079632679
     - 0.0
-    - 0.0
+    - 1.57079632679
     /tf/sim/drone_to_mmwave:
     - 0.0
     - 0.0

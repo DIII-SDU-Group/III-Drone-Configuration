@@ -47,6 +47,24 @@ def test_seed_runtime_configuration_populates_config_root_without_overwriting(mo
     assert selector.read_text(encoding="utf-8") == "custom: true\n"
 
 
+def test_seed_runtime_configuration_refreshes_schema_without_overwriting_parameter_sets(monkeypatch, tmp_path):
+    monkeypatch.delenv("III_DRONE_SCHEMA_FILE", raising=False)
+    monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
+    monkeypatch.setenv("SIMULATION", "true")
+
+    seed_runtime_configuration("sim")
+    schema = tmp_path / "iii_drone" / "parameters" / "parameter_manifest.yaml"
+    tracked = tmp_path / "iii_drone" / "parameter_sets" / "sim" / "tracked" / "default.yaml"
+    schema.write_text("stale_schema: true\n", encoding="utf-8")
+    tracked.write_text("custom_parameter_set: true\n", encoding="utf-8")
+
+    seed_runtime_configuration("sim")
+
+    assert "stale_schema" not in schema.read_text(encoding="utf-8")
+    assert "custom_parameter_set: true\n" == tracked.read_text(encoding="utf-8")
+
+
 def test_active_parameter_file_prefers_default_snapshot(monkeypatch, tmp_path):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("SIMULATION", "true")

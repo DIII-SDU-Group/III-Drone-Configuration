@@ -179,6 +179,56 @@ def test_server_runtime_updates_do_not_change_late_join_defaults(configured_serv
     assert server.node_registry["/late_joiner"].values["/control/mode"] == "manual"
 
 
+def test_server_periodic_reconcile_marks_then_prunes_offline_nodes(configured_server, monkeypatch):
+    server, _ = configured_server
+    server._OFFLINE_PRUNE_GRACE_SEC = 10.0
+    server.node_registry = {
+        "/node_a": ManagedNodeRecord("/node_a", ["/control/mode"], {"/control/mode": "auto"}),
+        "/node_b": ManagedNodeRecord("/node_b", ["/control/mode"], {"/control/mode": "auto"}),
+    }
+
+    now = 100.0
+    monkeypatch.setattr("iii_drone_configuration.configuration_server_node.time.monotonic", lambda: now)
+    monkeypatch.setattr(server, "_get_node_fq_names", lambda: ["/node_a", server.get_fully_qualified_name()])
+    monkeypatch.setattr(server, "_call_list_parameters", lambda _: ["/control/mode"])
+    monkeypatch.setattr(server, "_call_get_parameters", lambda *_: {"/control/mode": "auto"})
+
+    server.reconcile_nodes()
+
+    assert "/node_b" in server.node_registry
+    assert server.node_registry["/node_b"].offline_since_monotonic == pytest.approx(100.0)
+
+    now = 109.9
+    server.reconcile_nodes()
+
+    assert "/node_b" in server.node_registry
+
+    now = 110.0
+    server.reconcile_nodes()
+
+    assert "/node_b" not in server.node_registry
+    assert "/node_a" in server.node_registry
+
+
+def test_server_notification_reconcile_does_not_prune_unmentioned_nodes(configured_server, monkeypatch):
+    server, _ = configured_server
+    server._OFFLINE_PRUNE_GRACE_SEC = 0.0
+    server.node_registry = {
+        "/node_a": ManagedNodeRecord("/node_a", ["/control/mode"], {"/control/mode": "auto"}),
+        "/node_b": ManagedNodeRecord("/node_b", ["/control/mode"], {"/control/mode": "auto"}),
+    }
+    server.pending_node_notifications.add("/node_a")
+
+    monkeypatch.setattr("iii_drone_configuration.configuration_server_node.time.monotonic", lambda: 100.0)
+    monkeypatch.setattr(server, "_call_list_parameters", lambda _: ["/control/mode"])
+    monkeypatch.setattr(server, "_call_get_parameters", lambda *_: {"/control/mode": "auto"})
+
+    server.reconcile_nodes()
+
+    assert set(server.node_registry.keys()) == {"/node_a", "/node_b"}
+    assert server.node_registry["/node_b"].offline_since_monotonic is None
+
+
 def test_server_save_writes_standalone_parameter_file(configured_server):
     server, tmp_path = configured_server
     success, message = server._apply_shared_parameter_update("/control/mode", "manual", require_targets=False)
