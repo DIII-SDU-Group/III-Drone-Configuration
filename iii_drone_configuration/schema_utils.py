@@ -321,7 +321,7 @@ def seed_runtime_configuration(profile_name: str, *, overwrite: bool = False) ->
     if source_config_dir is not None:
         parameters_source_dir = source_config_dir / "parameters"
         parameters_target_dir = resolve_schema_parameters_dir()
-        copied = _copy_tree_if_missing(parameters_source_dir, parameters_target_dir, overwrite=overwrite)
+        copied = _copy_tree_if_missing(parameters_source_dir, parameters_target_dir, overwrite=True)
         seeded.update({f"parameters/{key}": value for key, value in copied.items()})
 
     selector_file = resolve_profile_selector_file(profile_name)

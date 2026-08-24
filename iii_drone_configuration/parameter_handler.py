@@ -282,6 +282,7 @@ class ParameterHandler:
 
         dict_to_update = self._get_raw_yaml_param_dict(param_name, create_missing_namespaces=True)
         dict_to_update.update(deepcopy(param_dict))
+        self._native_core = self._require_native_core()(self.get_parameters_yaml_string(), True)
         self.load_from_raw_yaml_dict()
 
     def remove_param(self, param_name: str):

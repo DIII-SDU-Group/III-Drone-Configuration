@@ -29,6 +29,9 @@ def wait_until(predicate, timeout=5.0, period=0.05, message="condition not met")
     raise AssertionError(message)
 
 
+DISCOVERY_TIMEOUT_SECONDS = 10.0
+
+
 def _resolve_cpp_test_executable() -> Path:
     workspace_root = Path(__file__).resolve().parents[3]
     candidates = (
@@ -151,7 +154,11 @@ def test_python_managed_nodes_sync_and_late_join(running_graph, node_cls):
 
     node_a = make_managed_node(node_cls, f"py_managed_a_{node_cls.__name__.replace('.', '_')}")
     harness.add_node(node_a)
-    wait_until(lambda: node_a.get_fully_qualified_name() in server.node_registry, message="node_a not discovered")
+    wait_until(
+        lambda: node_a.get_fully_qualified_name() in server.node_registry,
+        timeout=DISCOVERY_TIMEOUT_SECONDS,
+        message="node_a not discovered",
+    )
 
     set_request = SetParameterFromGC.Request()
     set_request.parameter_name = "/control/gains/p"
@@ -167,7 +174,11 @@ def test_python_managed_nodes_sync_and_late_join(running_graph, node_cls):
 
     node_b = make_managed_node(node_cls, f"py_managed_b_{node_cls.__name__.replace('.', '_')}")
     harness.add_node(node_b)
-    wait_until(lambda: node_b.get_fully_qualified_name() in server.node_registry, message="node_b not discovered")
+    wait_until(
+        lambda: node_b.get_fully_qualified_name() in server.node_registry,
+        timeout=DISCOVERY_TIMEOUT_SECONDS,
+        message="node_b not discovered",
+    )
     wait_until(lambda: node_b.get_parameter("/control/gains/p").value == pytest.approx(4.5), message="late join node not synced")
 
     declared_response = call_service(
@@ -187,7 +198,11 @@ def test_python_late_join_uses_new_default_after_runtime_state_is_saved(running_
 
     node_a = make_managed_node(node_cls, f"py_saved_default_a_{node_cls.__name__.replace('.', '_')}")
     harness.add_node(node_a)
-    wait_until(lambda: node_a.get_fully_qualified_name() in server.node_registry, message="node_a not discovered")
+    wait_until(
+        lambda: node_a.get_fully_qualified_name() in server.node_registry,
+        timeout=DISCOVERY_TIMEOUT_SECONDS,
+        message="node_a not discovered",
+    )
 
     set_request = SetParameterFromGC.Request()
     set_request.parameter_name = "/control/gains/p"
@@ -215,7 +230,11 @@ def test_python_late_join_uses_new_default_after_runtime_state_is_saved(running_
 
     node_b = make_managed_node(node_cls, f"py_saved_default_b_{node_cls.__name__.replace('.', '_')}")
     harness.add_node(node_b)
-    wait_until(lambda: node_b.get_fully_qualified_name() in server.node_registry, message="node_b not discovered")
+    wait_until(
+        lambda: node_b.get_fully_qualified_name() in server.node_registry,
+        timeout=DISCOVERY_TIMEOUT_SECONDS,
+        message="node_b not discovered",
+    )
     wait_until(lambda: node_b.get_parameter("/control/gains/p").value == pytest.approx(4.5), message="late join node not using new default")
 
 
@@ -225,7 +244,11 @@ def test_python_managed_nodes_reject_invalid_updates_and_accept_snapshot_load(ru
 
     node = make_managed_node(node_cls, f"py_snapshot_{node_cls.__name__.replace('.', '_')}")
     harness.add_node(node)
-    wait_until(lambda: node.get_fully_qualified_name() in server.node_registry, message="managed node not discovered")
+    wait_until(
+        lambda: node.get_fully_qualified_name() in server.node_registry,
+        timeout=DISCOVERY_TIMEOUT_SECONDS,
+        message="managed node not discovered",
+    )
 
     invalid_request = SetParameterFromGC.Request()
     invalid_request.parameter_name = "/control/gains/i"

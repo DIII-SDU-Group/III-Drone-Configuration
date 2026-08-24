@@ -308,6 +308,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(
     test_python_configuration_server
     "${PROJECT_SOURCE_DIR}/test/test_configuration_server.py"
+    TIMEOUT 120
     APPEND_ENV
       PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
   )

@@ -63,7 +63,7 @@ perception:
       min: 10.0
     view_cone_slope:
       type: float
-      value: 0.55
+      value: 0.85
       min: 0.0
     strict_min_point_dist:
       type: float
@@ -77,7 +77,7 @@ perception:
       max: /perception/pl_mapper/max_point_dist
     strict_view_cone_slope:
       type: float
-      value: 0.75
+      value: 0.9
       min: /perception/pl_mapper/view_cone_slope
       max: 2.0
     matching_line_max_dist:
@@ -181,6 +181,13 @@ control:
       min: 10
       max: 500
       constant: true
+    reference_stream_timeout_ms:
+      type: int
+      value: 500
+      min: 100
+      max: 5000
+      constant: false
+      description: Producer acknowledgement deadline and DDS reference lifespan.
     reference_callback_provider_publish_period_ms:
       type: int
       value: 100
@@ -235,6 +242,16 @@ control:
       value: 0.2
       min: 0.05
       max: /control/maneuver_controller/hover_by_object_max_euc_dist
+    fly_to_position_blend_radius:
+      type: float
+      value: 0.7
+      min: /control/maneuver_controller/reached_position_euclidean_distance_threshold
+      max: 5.0
+    reached_yaw_error_threshold:
+      type: float
+      value: 0.0872665
+      min: 0.01
+      max: 3.141592654
     minimum_target_altitude:
       type: float
       value: 1.0
@@ -259,7 +276,7 @@ control:
       type: float
       value: 0.25
       min: 0.05
-      max: 0.5
+      max: 3.0
     cable_landing_max_initial_yaw_error:
       type: float
       value: 0.314159265
@@ -294,7 +311,7 @@ control:
       type: float
       value: 0.05
       min: 0.01
-      max: 0.1
+      max: 0.2
     cable_landing_safety_margin_cone_slope:
       type: float
       value: 1.0
@@ -305,6 +322,31 @@ control:
       value: 0.05
       min: 0.01
       max: 0.5
+    cable_landing_gripper_v_gate_apex_z:
+      type: float
+      value: -0.06
+      min: -0.2
+      max: 0.0
+    cable_landing_gripper_v_gate_reference_z:
+      type: float
+      value: 0.03
+      min: -0.1
+      max: 0.2
+    cable_landing_gripper_v_gate_half_width_at_reference_z:
+      type: float
+      value: 0.08
+      min: 0.01
+      max: 0.2
+    cable_landing_gripper_v_gate_center_y:
+      type: float
+      value: 0.0
+      min: -0.1
+      max: 0.1
+    cable_landing_gripper_v_gate_violation_grace_s:
+      type: float
+      value: 0.0
+      min: 0.0
+      max: 2.0
     cable_landing_reference_truncate_radius:
       type: float
       value: 0.25
@@ -315,6 +357,99 @@ control:
       value: 0.1
       min: 0.01
       max: 0.25
+    cable_landing_controller_type:
+      type: string
+      value: mpc
+    cable_landing_line_pid_ascent_velocity:
+      type: float
+      value: 0.1
+      min: 0.01
+      max: 0.5
+    cable_landing_line_pid_max_along_velocity:
+      type: float
+      value: 0.08
+      min: 0.01
+      max: 0.5
+    cable_landing_line_pid_max_cross_velocity:
+      type: float
+      value: 0.08
+      min: 0.01
+      max: 0.75
+    cable_landing_line_pid_max_yaw_rate:
+      type: float
+      value: 0.35
+      min: 0.01
+      max: 2.0
+    cable_landing_line_pid_max_dt_s:
+      type: float
+      value: 0.2
+      min: 0.01
+      max: 1.0
+    cable_landing_line_pid_along_kp:
+      type: float
+      value: 0.4
+      min: 0.0
+      max: 5.0
+    cable_landing_line_pid_along_ki:
+      type: float
+      value: 0.0
+      min: 0.0
+      max: 2.0
+    cable_landing_line_pid_along_kd:
+      type: float
+      value: 0.05
+      min: 0.0
+      max: 2.0
+    cable_landing_line_pid_along_integral_limit:
+      type: float
+      value: 0.2
+      min: 0.0
+      max: 2.0
+    cable_landing_line_pid_cross_kp:
+      type: float
+      value: 0.35
+      min: 0.0
+      max: 10.0
+    cable_landing_line_pid_cross_ki:
+      type: float
+      value: 0.0
+      min: 0.0
+      max: 2.0
+    cable_landing_line_pid_cross_kd:
+      type: float
+      value: 0.0
+      min: 0.0
+      max: 2.0
+    cable_landing_line_pid_cross_integral_limit:
+      type: float
+      value: 0.05
+      min: 0.0
+      max: 2.0
+    cable_landing_line_pid_yaw_kp:
+      type: float
+      value: 1.2
+      min: 0.0
+      max: 10.0
+    cable_landing_line_pid_yaw_ki:
+      type: float
+      value: 0.0
+      min: 0.0
+      max: 2.0
+    cable_landing_line_pid_yaw_kd:
+      type: float
+      value: 0.05
+      min: 0.0
+      max: 2.0
+    cable_landing_line_pid_yaw_integral_limit:
+      type: float
+      value: 0.2
+      min: 0.0
+      max: 2.0
+    cable_landing_target_lock_max_orthogonal_distance:
+      type: float
+      value: 0.75
+      min: 0.05
+      max: 3.0
     cable_takeoff_min_target_cable_distance:
       type: float
       value: 0.5
@@ -340,9 +475,9 @@ control:
       constant: true
     generate_trajectories_timeout_ms:
       type: int
-      value: 10
+      value: 1000
       min: /control/maneuver_controller/generate_trajectories_poll_period_ms
-      max: /control/maneuver_controller/maneuver_execution_period_ms / 2
+      max: 5000
       constant: true
     fly_to_position_use_mpc:
       type: bool
@@ -350,12 +485,52 @@ control:
     fly_to_object_use_mpc:
       type: bool
       value: true
+    fly_to_object_target_low_pass_time_constant_s:
+      type: float
+      value: 1.0
+      min: 0.0
+      max: 10.0
     cable_landing_use_mpc:
       type: bool
       value: true
     cable_takeoff_use_mpc:
       type: bool
       value: true
+    controlled_cancel_max_deceleration_m_s2:
+      type: float
+      value: 0.5
+      min: 0.05
+      max: 5.0
+    controlled_cancel_max_jerk_m_s3:
+      type: float
+      value: 1.0
+      min: 0.05
+      max: 10.0
+    controlled_cancel_max_yaw_deceleration_rad_s2:
+      type: float
+      value: 0.75
+      min: 0.05
+      max: 10.0
+    controlled_cancel_max_yaw_jerk_rad_s3:
+      type: float
+      value: 1.5
+      min: 0.05
+      max: 20.0
+    controlled_cancel_velocity_threshold_m_s:
+      type: float
+      value: 0.08
+      min: 0.01
+      max: 0.5
+    controlled_cancel_yaw_rate_threshold_rad_s:
+      type: float
+      value: 0.08
+      min: 0.01
+      max: 0.5
+    controlled_cancel_settle_time_s:
+      type: float
+      value: 0.2
+      min: 0.0
+      max: 2.0
   dt:
     type: float
     value: 0.2
@@ -606,12 +781,62 @@ control:
       type: float
       value: 0.1
       min: 0.0
+    cable_aware_grid_resolution_m:
+      type: float
+      value: 0.5
+      min: 0.1
+      max: 2.0
+    cable_aware_grid_margin_m:
+      type: float
+      value: 3.0
+      min: 0.5
+      max: 20.0
+    cable_aware_clearance_m:
+      type: float
+      value: 1.0
+      min: 0.1
+      max: 10.0
+    cable_aware_max_astar_expansions:
+      type: int
+      value: 50000
+      min: 1000
+      max: 500000
   trajectory_interpolator:
     interpolation_avg_velocity_m_s:
       type: float
       value: 0.5
       min: 0.1
       max: 5.0
+    interpolation_avg_yaw_rate_rad_s:
+      type: float
+      value: 0.5
+      min: 0.05
+      max: 3.141592654
+    interpolation_max_velocity_m_s:
+      type: float
+      value: 1.0
+      min: 0.05
+      max: 5.0
+    interpolation_max_acceleration_m_s2:
+      type: float
+      value: 0.5
+      min: 0.05
+      max: 5.0
+    interpolation_max_jerk_m_s3:
+      type: float
+      value: 1.0
+      min: 0.05
+      max: 10.0
+    interpolation_max_yaw_rate_rad_s:
+      type: float
+      value: 0.75
+      min: 0.05
+      max: 3.141592654
+    interpolation_max_yaw_acceleration_rad_s2:
+      type: float
+      value: 0.75
+      min: 0.05
+      max: 10.0
     reference_trajectory_length_N:
       type: int
       value: 10
@@ -721,6 +946,12 @@ payload:
       value: 10
       min: 1
 mission:
+  rosbag_recorder:
+    artifact_root:
+      type: string
+      value: /tmp/iii_drone/rosbags
+      description: Root directory for all manual and mission rosbag recordings.
+      constant: true
   mission_specification_file:
     type: string
     value: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
@@ -743,9 +974,60 @@ mission:
     constant: false
   get_reference_timeout_ms:
     type: int
-    value: 450
+    value: 50
     min: 10
     max: 500
+    constant: false
+  reference_loss_timeout_ms:
+    type: int
+    value: 500
+    min: 100
+    max: 5000
+    constant: false
+    description: Maximum age of the last accepted maneuver reference before a client-local
+      bounded stop is latched.
+  reference_rebase_timeout_ms:
+    type: int
+    value: 2000
+    min: 250
+    max: 10000
+    constant: false
+    description: Maximum duration of the asynchronous prepare/commit rebase handshake.
+  reference_continuity_position_tolerance_m:
+    type: float
+    value: 0.25
+    min: 0.01
+    max: 2.0
+    constant: false
+  reference_continuity_velocity_tolerance_m_s:
+    type: float
+    value: 0.5
+    min: 0.01
+    max: 3.0
+    constant: false
+  reference_continuity_acceleration_tolerance_m_s2:
+    type: float
+    value: 0.75
+    min: 0.01
+    max: 5.0
+    constant: false
+  reference_continuity_yaw_tolerance_rad:
+    type: float
+    value: 0.35
+    min: 0.01
+    max: 3.141592654
+    constant: false
+  reference_continuity_yaw_rate_tolerance_rad_s:
+    type: float
+    value: 0.5
+    min: 0.01
+    max: 3.141592654
+    constant: false
+  reference_continuity_yaw_acceleration_tolerance_rad_s2:
+    type: float
+    value: 0.75
+    min: 0.01
+    max: 10.0
     constant: false
   manual_stick_input_threshold:
     type: float
@@ -760,6 +1042,10 @@ mission:
     - land
     - hold
     - position
+  bypass_battery_checks:
+    type: bool
+    value: false
+    constant: false
 behavior:
   server_timeout_ms:
     type: int
@@ -887,11 +1173,9 @@ tf:
     drone_to_mmwave:
       type: float_array
       value:
-      - 0.0
-      - 0.0
-      - 0.0
-      - 0.0
-      - 0.1
+      - 0.025
+      - -0.24
+      - 0.295
       - 3.1415
       - -1.57079632679
       - 0.0
@@ -906,3 +1190,60 @@ tf:
       - -1.57079632679
       - 0.0
       constant: true
+inspection_demo:
+  inspection_clearance_m:
+    type: float
+    value: 2.0
+    min: 0.5
+    max: 5.0
+  pylon_end_clearance_m:
+    type: float
+    value: 2.0
+    min: 0.5
+    max: 10.0
+  pylon_structure_extent_m:
+    type: float
+    value: 2.0
+    min: 0.0
+    max: 10.0
+  max_pylon_powerline_direction_mismatch_rad:
+    type: float
+    value: 0.35
+    min: 0.01
+    max: 1.57
+  pylon_span_margin_m:
+    type: float
+    value: 0.5
+    min: 0.0
+    max: 10.0
+  battery_topic_timeout_s:
+    type: float
+    value: 2.0
+    min: 0.1
+    max: 10.0
+  battery_check_retry_count:
+    type: int
+    value: 3
+    min: 1
+    max: 100
+  battery_check_retry_interval_s:
+    type: float
+    value: 0.2
+    min: 0.01
+    max: 5.0
+  battery_voltage_threshold_v:
+    type: float
+    value: 14.0
+    min: 0.0
+    max: 30.0
+  battery_voltage_debounce_s:
+    type: float
+    value: 2.0
+    min: 0.0
+    max: 30.0
+cable_charging:
+  minimum_stay_on_cable_s:
+    type: float
+    value: 10.0
+    min: 0.0
+    max: 3600.0

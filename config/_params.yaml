@@ -175,6 +175,9 @@ payload:
       charging_power_avg_filter_size: 10
 
 mission:
+  rosbag_recorder:
+    ros__parameters:
+      artifact_root: /tmp/iii_drone/rosbags
   continuous_mission_orchestrator:
     ros__parameters:
       under_cable_target_distance: 1.5
@@ -205,7 +208,7 @@ tf:
   sim:
     ros__parameters:
       drone_to_cable_gripper: [0.0, 0.0, 0.4, 1.57079632679, 0.0, 0.0]
-      drone_to_mmwave: [0.035, -0.23, 0.28, 3.1415, -1.57079632679, 0.0]
+      drone_to_mmwave: [0.025, -0.24, 0.295, 3.1415, -1.57079632679, 0.0]
       drone_to_depth_cam: [0.035, -0.23, 0.28, -1.57079632679, 0.0, 0.0]
   real:
     ros__parameters:
