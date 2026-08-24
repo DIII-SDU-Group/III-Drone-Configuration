@@ -26,14 +26,17 @@ from std_msgs.msg import String
 from rcl_interfaces.srv import GetParameters, ListParameters, SetParameters
 
 from iii_drone_interfaces.srv import (
+    ActivatePendingBootParameters,
     DeclareParameters,
     GetCurrentParameterFile,
     GetDeclaredParameters,
     GetParameterFiles,
     GetParameterYaml,
+    GetPendingBootParameters,
     LoadParameters,
     SaveParameters,
     SetCurrentParameterFileAsDefault,
+    SetBootParameter,
     SetParameterFromGC,
     UndeclareParameters,
 )
@@ -73,6 +76,9 @@ class ManagedNodeRecord:
 class ConfigurationServer(Node):
     _RUNTIME_SNAPSHOT_PREFIX = "runtime_parameters_"
     _OFFLINE_PRUNE_GRACE_SEC = 10.0
+    _PARAMETER_SERVICE_TIMEOUT_SEC = 2.0
+    _PARAMETER_READBACK_ATTEMPTS = 3
+    _PARAMETER_READBACK_RETRY_SEC = 0.1
 
     def __init__(
         self,
@@ -100,6 +106,7 @@ class ConfigurationServer(Node):
         self._boot_default_parameter_file_path: Optional[Path] = None
         self._boot_default_snapshot_file_name: str = ""
         self._runtime_snapshot_file_name: Optional[str] = None
+        self._pending_boot_values: dict[str, object] = {}
 
         self.declare_parameters_service: Optional[Service] = None
         self.undeclare_parameters_service: Optional[Service] = None
@@ -109,6 +116,9 @@ class ConfigurationServer(Node):
         self.get_parameter_files_service: Optional[Service] = None
         self.load_parameters_service: Optional[Service] = None
         self.set_parameter_from_gc_service: Optional[Service] = None
+        self.set_boot_parameter_service: Optional[Service] = None
+        self.get_pending_boot_parameters_service: Optional[Service] = None
+        self.activate_pending_boot_parameters_service: Optional[Service] = None
         self.get_current_parameter_file_service: Optional[Service] = None
         self.set_current_parameter_file_as_default_service: Optional[Service] = None
         self.managed_node_notification_subscription = None
@@ -149,6 +159,7 @@ class ConfigurationServer(Node):
                     key: self.native_core.get_schema_entry(key)["default_value"] for key in sorted(self.managed_keys)
                 }
                 self.node_registry.clear()
+                self._pending_boot_values.clear()
                 self._load_boot_parameter_file_if_available()
                 self._capture_boot_configuration()
             self.get_logger().info(f"Configuration server loaded {len(self.managed_keys)} managed parameters.")
@@ -201,6 +212,24 @@ class ConfigurationServer(Node):
             self.set_parameter_from_gc_callback,
             callback_group=self.cb_group,
         )
+        self.set_boot_parameter_service = self.create_service(
+            SetBootParameter,
+            "set_boot_parameter",
+            self.set_boot_parameter_callback,
+            callback_group=self.cb_group,
+        )
+        self.get_pending_boot_parameters_service = self.create_service(
+            GetPendingBootParameters,
+            "get_pending_boot_parameters",
+            self.get_pending_boot_parameters_callback,
+            callback_group=self.cb_group,
+        )
+        self.activate_pending_boot_parameters_service = self.create_service(
+            ActivatePendingBootParameters,
+            "activate_pending_boot_parameters",
+            self.activate_pending_boot_parameters_callback,
+            callback_group=self.cb_group,
+        )
         self.get_current_parameter_file_service = self.create_service(
             GetCurrentParameterFile,
             "get_current_parameter_file",
@@ -240,6 +269,9 @@ class ConfigurationServer(Node):
             "get_parameter_files_service",
             "load_parameters_service",
             "set_parameter_from_gc_service",
+            "set_boot_parameter_service",
+            "get_pending_boot_parameters_service",
+            "activate_pending_boot_parameters_service",
             "get_current_parameter_file_service",
             "set_current_parameter_file_as_default_service",
         ):
@@ -275,6 +307,7 @@ class ConfigurationServer(Node):
             self._boot_default_parameter_file_path = None
             self._boot_default_snapshot_file_name = ""
             self._runtime_snapshot_file_name = None
+            self._pending_boot_values.clear()
         return TransitionCallbackReturn.SUCCESS
 
     def managed_node_notification_callback(self, msg: String) -> None:
@@ -326,7 +359,11 @@ class ConfigurationServer(Node):
         request.prefixes = []
         request.depth = 1000
         try:
-            response = self._call_client(client, request, timeout_sec=0.5)
+            response = self._call_client(
+                client,
+                request,
+                timeout_sec=self._PARAMETER_SERVICE_TIMEOUT_SEC,
+            )
             if response is None:
                 return None
             return list(response.result.names)
@@ -341,7 +378,11 @@ class ConfigurationServer(Node):
         request = GetParameters.Request()
         request.names = parameter_names
         try:
-            response = self._call_client(client, request, timeout_sec=0.5)
+            response = self._call_client(
+                client,
+                request,
+                timeout_sec=self._PARAMETER_SERVICE_TIMEOUT_SEC,
+            )
             if response is None:
                 return None
             if len(response.values) != len(parameter_names):
@@ -364,7 +405,11 @@ class ConfigurationServer(Node):
         request.parameters = [parameter.to_parameter_msg()]
 
         try:
-            response = self._call_client(client, request, timeout_sec=0.5)
+            response = self._call_client(
+                client,
+                request,
+                timeout_sec=self._PARAMETER_SERVICE_TIMEOUT_SEC,
+            )
             if response is None:
                 return False, f"Timed out waiting for {node_fq_name}"
             if not response.results:
@@ -383,7 +428,6 @@ class ConfigurationServer(Node):
                 if self.parameter_handler is None:
                     return
                 managed_keys = set(self.managed_keys)
-                server_values = dict(self.server_values)
                 pending_node_notifications = set(self.pending_node_notifications)
                 full_graph_scan = not pending_node_notifications
                 target_fq_names = pending_node_notifications or set(self._get_node_fq_names())
@@ -406,34 +450,35 @@ class ConfigurationServer(Node):
                 if values is None:
                     continue
 
-                authoritative_values = {
-                    parameter_name: server_values[parameter_name]
-                    for parameter_name in managed_parameter_names
-                }
+                reconciled_values: dict[str, object] = {}
 
                 for parameter_name in managed_parameter_names:
-                    authoritative_value = authoritative_values[parameter_name]
-                    if values.get(parameter_name) == authoritative_value:
-                        continue
+                    # A GC update may complete after the graph/readback work
+                    # above. Serialize authority lookup and node synchronization
+                    # with live updates so this pass cannot restore its stale
+                    # initial snapshot over the newly accepted value.
+                    with self._state_lock:
+                        authoritative_value = self.server_values[parameter_name]
+                        if values.get(parameter_name) != authoritative_value:
+                            success, message = self._call_set_parameter(
+                                node_fq_name,
+                                parameter_name,
+                                authoritative_value,
+                            )
+                            if not success:
+                                self.get_logger().warn(
+                                    f"Failed to synchronize newly discovered node '{node_fq_name}' "
+                                    f"parameter '{parameter_name}': {message}"
+                                )
+                            else:
+                                values[parameter_name] = authoritative_value
 
-                    success, message = self._call_set_parameter(
-                        node_fq_name,
-                        parameter_name,
-                        authoritative_value,
-                    )
-                    if not success:
-                        self.get_logger().warn(
-                            f"Failed to synchronize newly discovered node '{node_fq_name}' "
-                            f"parameter '{parameter_name}': {message}"
-                        )
-                        continue
-
-                    values[parameter_name] = authoritative_value
+                        reconciled_values[parameter_name] = values.get(parameter_name)
 
                 discovered_records[node_fq_name] = ManagedNodeRecord(
                     fq_name=node_fq_name,
                     parameter_names=managed_parameter_names,
-                    values=dict(authoritative_values),
+                    values=reconciled_values,
                     last_seen_monotonic=now_monotonic,
                 )
 
@@ -612,7 +657,13 @@ class ConfigurationServer(Node):
         ros_parameters = data.get("/**", {}).get("ros__parameters", {})
         return {name: value for name, value in ros_parameters.items() if name in self.managed_keys}
 
-    def _write_snapshot_file(self, file_name: str, overwrite: bool) -> Path:
+    def _write_snapshot_file(
+        self,
+        file_name: str,
+        overwrite: bool,
+        *,
+        validate_live_nodes: bool = True,
+    ) -> Path:
         with self._state_lock:
             reference = self._normalize_parameter_file_reference(file_name, default_subdir="snapshots")
             path = resolve_parameter_set_path(self._profile_name, reference)
@@ -620,18 +671,40 @@ class ConfigurationServer(Node):
             if path.exists() and not overwrite:
                 raise FileExistsError(f"Snapshot file '{file_name}' already exists")
 
-            for parameter_name, node_fq_names in (
-                (name, self._group_nodes_for_parameter(name)) for name in sorted(self.server_values.keys())
-            ):
-                for node_fq_name in node_fq_names:
-                    node_value = self.node_registry[node_fq_name].values.get(parameter_name)
-                    if node_value != self.server_values[parameter_name]:
+            if validate_live_nodes:
+                # The registry is a discovery/reconciliation cache and may lag
+                # a just-completed SetParameters response. Explicit saves audit
+                # fresh live values; transactional runtime snapshots skip this
+                # broader audit because the changed value was already read back
+                # synchronously by _apply_shared_parameter_update().
+                for node_fq_name, record in self.node_registry.items():
+                    parameter_names = sorted(set(record.parameter_names).intersection(self.server_values))
+                    if not parameter_names:
+                        continue
+                    live_values = None
+                    for attempt in range(self._PARAMETER_READBACK_ATTEMPTS):
+                        live_values = self._call_get_parameters(node_fq_name, parameter_names)
+                        if live_values is not None and all(
+                            live_values.get(name) == self.server_values[name]
+                            for name in parameter_names
+                        ):
+                            break
+                        if attempt + 1 < self._PARAMETER_READBACK_ATTEMPTS:
+                            time.sleep(self._PARAMETER_READBACK_RETRY_SEC)
+                    if live_values is None:
                         raise RuntimeError(
-                            f"Refusing to save inconsistent parameter '{parameter_name}': "
-                            f"{node_fq_name} has {node_value!r}, server has {self.server_values[parameter_name]!r}"
+                            f"Refusing to save because '{node_fq_name}' did not provide fresh parameter readback"
                         )
+                    record.values.update(live_values)
+                    for parameter_name in parameter_names:
+                        node_value = live_values.get(parameter_name)
+                        if node_value != self.server_values[parameter_name]:
+                            raise RuntimeError(
+                                f"Refusing to save inconsistent parameter '{parameter_name}': "
+                                f"{node_fq_name} has {node_value!r}, server has {self.server_values[parameter_name]!r}"
+                            )
 
-            save_parameter_file = build_parameter_file_data(self.server_values)
+            save_parameter_file = build_parameter_file_data(self._effective_boot_values())
             with open(path, "w", encoding="utf-8") as file:
                 yaml.safe_dump(save_parameter_file, file, sort_keys=False)
             return path
@@ -676,8 +749,13 @@ class ConfigurationServer(Node):
         self._boot_default_parameter_file_path = path
         self._boot_default_snapshot_file_name = file_name
 
+    def _effective_boot_values(self) -> dict[str, object]:
+        values = dict(self.server_values)
+        values.update(self._pending_boot_values)
+        return values
+
     def _sync_runtime_parameter_file(self) -> str:
-        if self.server_values == self._boot_server_values:
+        if self._effective_boot_values() == self._boot_server_values:
             removed_file_name = self._runtime_snapshot_file_name
             self._runtime_snapshot_file_name = None
             self._restore_boot_default_parameter_file()
@@ -693,7 +771,7 @@ class ConfigurationServer(Node):
             file_name = self._new_runtime_snapshot_file_name()
             reference = self._normalize_parameter_file_reference(file_name, default_subdir="snapshots")
 
-        self._write_snapshot_file(reference, overwrite=False)
+        self._write_snapshot_file(reference, overwrite=False, validate_live_nodes=False)
         try:
             self._set_default_snapshot_file(reference)
         except Exception:
@@ -886,6 +964,113 @@ class ConfigurationServer(Node):
 
             response.success = True
             response.message = message
+            return response
+
+    def set_boot_parameter_callback(self, request, response):
+        with self._state_lock:
+            if self.parameter_handler is None or self.native_core is None:
+                response.success = False
+                response.message = "Configuration server is not configured"
+                return response
+
+            try:
+                if not self._parameter_is_constant(request.parameter_name):
+                    raise ValueError(f"'{request.parameter_name}' is not a constant parameter")
+                cast_value = self.parameter_handler.cast_param_value(
+                    request.parameter_name,
+                    request.parameter_string_value,
+                )
+                candidate_values = self._effective_boot_values()
+                candidate_values[request.parameter_name] = cast_value
+                self.native_core.validate_parameter_value(
+                    request.parameter_name,
+                    cast_value,
+                    self._parameter_type(request.parameter_name),
+                    self._candidate_parameter_map(candidate_values),
+                    True,
+                )
+                self.native_core.validate_parameter_map(
+                    self._candidate_parameter_map(candidate_values),
+                    True,
+                )
+            except Exception as exc:
+                response.success = False
+                response.message = str(exc)
+                return response
+
+            previous_pending = dict(self._pending_boot_values)
+            if self.server_values.get(request.parameter_name) == cast_value:
+                self._pending_boot_values.pop(request.parameter_name, None)
+            else:
+                self._pending_boot_values[request.parameter_name] = cast_value
+            try:
+                message = self._sync_runtime_parameter_file()
+            except Exception as exc:
+                self._pending_boot_values = previous_pending
+                response.success = False
+                response.message = f"Boot parameter was not persisted: {exc}"
+                return response
+
+            response.success = True
+            response.message = message or "Boot parameter persisted; only valid after system restart"
+            response.persisted_parameter_file = self.current_parameter_file
+            return response
+
+    def get_pending_boot_parameters_callback(self, request, response):
+        del request
+        with self._state_lock:
+            response.pending_parameters_yaml = yaml.safe_dump(
+                self._pending_boot_values,
+                sort_keys=True,
+            )
+            response.persisted_parameter_file = self.current_parameter_file
+            return response
+
+    def activate_pending_boot_parameters_callback(self, request, response):
+        del request
+        with self._state_lock:
+            if self.parameter_handler is None or self.native_core is None:
+                response.success = False
+                response.message = "Configuration server is not configured"
+                return response
+            if not self._pending_boot_values:
+                response.success = True
+                response.message = "No boot parameters are pending"
+                response.activated_parameter_names = []
+                return response
+
+            activated_names = sorted(self._pending_boot_values)
+            try:
+                effective_values = self._effective_boot_values()
+                self.native_core.validate_parameter_map(
+                    self._candidate_parameter_map(effective_values),
+                    True,
+                )
+                for parameter_name in activated_names:
+                    value = self._pending_boot_values[parameter_name]
+                    self.parameter_handler.set_param(
+                        parameter_name,
+                        value,
+                        parameter_initialized=False,
+                        force_constant=True,
+                    )
+                    self.server_values[parameter_name] = value
+                self._pending_boot_values.clear()
+                active_path = resolve_parameter_set_path(self._profile_name, self.current_parameter_file)
+                self._mark_current_configuration_as_default_baseline(
+                    self.current_parameter_file,
+                    active_path,
+                )
+                self._runtime_snapshot_file_name = None
+                self.node_registry.clear()
+            except Exception as exc:
+                response.success = False
+                response.message = str(exc)
+                return response
+
+            response.success = True
+            response.message = "Pending boot parameters activated"
+            response.activated_parameter_names = activated_names
             return response
 
     def get_current_parameter_file_callback(self, request, response):

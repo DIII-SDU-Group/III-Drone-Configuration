@@ -181,6 +181,13 @@ control:
       min: 10
       max: 500
       constant: true
+    reference_stream_timeout_ms:
+      type: int
+      value: 500
+      min: 100
+      max: 5000
+      constant: false
+      description: Producer acknowledgement deadline and DDS reference lifespan.
     reference_callback_provider_publish_period_ms:
       type: int
       value: 100
@@ -249,6 +256,41 @@ control:
       type: float
       value: 1.0
       min: 0.1
+      max: 2.0
+    controlled_cancel_max_deceleration_m_s2:
+      type: float
+      value: 0.5
+      min: 0.05
+      max: 5.0
+    controlled_cancel_max_jerk_m_s3:
+      type: float
+      value: 1.0
+      min: 0.05
+      max: 10.0
+    controlled_cancel_max_yaw_deceleration_rad_s2:
+      type: float
+      value: 0.75
+      min: 0.05
+      max: 10.0
+    controlled_cancel_max_yaw_jerk_rad_s3:
+      type: float
+      value: 1.5
+      min: 0.05
+      max: 20.0
+    controlled_cancel_velocity_threshold_m_s:
+      type: float
+      value: 0.08
+      min: 0.01
+      max: 0.5
+    controlled_cancel_yaw_rate_threshold_rad_s:
+      type: float
+      value: 0.08
+      min: 0.01
+      max: 0.5
+    controlled_cancel_settle_time_s:
+      type: float
+      value: 0.2
+      min: 0.0
       max: 2.0
     cable_landing_min_z_distance:
       type: float
@@ -780,6 +822,11 @@ control:
       value: 0.5
       min: 0.05
       max: 5.0
+    interpolation_max_jerk_m_s3:
+      type: float
+      value: 1.0
+      min: 0.05
+      max: 10.0
     interpolation_max_yaw_rate_rad_s:
       type: float
       value: 0.75
@@ -899,6 +946,12 @@ payload:
       value: 10
       min: 1
 mission:
+  rosbag_recorder:
+    artifact_root:
+      type: string
+      value: /tmp/iii_drone/rosbags
+      description: Root directory for all manual and mission rosbag recordings.
+      constant: true
   mission_specification_file:
     type: string
     value: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
@@ -925,6 +978,56 @@ mission:
     min: 10
     max: 500
     constant: false
+  reference_loss_timeout_ms:
+    type: int
+    value: 500
+    min: 100
+    max: 5000
+    constant: false
+    description: Maximum age of the last accepted maneuver reference before a client-local bounded stop is latched.
+  reference_rebase_timeout_ms:
+    type: int
+    value: 2000
+    min: 250
+    max: 10000
+    constant: false
+    description: Maximum duration of the asynchronous prepare/commit rebase handshake.
+  reference_continuity_position_tolerance_m:
+    type: float
+    value: 0.25
+    min: 0.01
+    max: 2.0
+    constant: false
+  reference_continuity_velocity_tolerance_m_s:
+    type: float
+    value: 0.5
+    min: 0.01
+    max: 3.0
+    constant: false
+  reference_continuity_acceleration_tolerance_m_s2:
+    type: float
+    value: 0.75
+    min: 0.01
+    max: 5.0
+    constant: false
+  reference_continuity_yaw_tolerance_rad:
+    type: float
+    value: 0.35
+    min: 0.01
+    max: 3.141592654
+    constant: false
+  reference_continuity_yaw_rate_tolerance_rad_s:
+    type: float
+    value: 0.5
+    min: 0.01
+    max: 3.141592654
+    constant: false
+  reference_continuity_yaw_acceleration_tolerance_rad_s2:
+    type: float
+    value: 0.75
+    min: 0.01
+    max: 10.0
+    constant: false
   manual_stick_input_threshold:
     type: float
     value: 0.35
@@ -945,14 +1048,19 @@ mission:
 inspection_demo:
   inspection_clearance_m:
     type: float
-    value: 1.5
+    value: 2.0
     min: 0.5
     max: 5.0
-  pylon_low_height_above_ground_m:
+  pylon_end_clearance_m:
     type: float
-    value: 1.5
-    min: 0.2
-    max: 5.0
+    value: 2.0
+    min: 0.5
+    max: 10.0
+  pylon_structure_extent_m:
+    type: float
+    value: 2.0
+    min: 0.0
+    max: 10.0
   max_pylon_powerline_direction_mismatch_rad:
     type: float
     value: 0.35
@@ -1121,9 +1229,9 @@ tf:
     drone_to_mmwave:
       type: float_array
       value:
-      - 0.0
-      - 0.0
-      - 0.1
+      - 0.025
+      - -0.24
+      - 0.295
       - 3.1415
       - -1.57079632679
       - 0.0

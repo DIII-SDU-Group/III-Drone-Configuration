@@ -38,6 +38,7 @@
     /control/maneuver_controller/maneuver_start_timeout_s: 1.0
     /control/maneuver_controller/maneuver_queue_size: 5
     /control/maneuver_controller/maneuver_execution_period_ms: 50
+    /control/maneuver_controller/reference_stream_timeout_ms: 500
     /control/maneuver_controller/reference_callback_provider_publish_period_ms: 100
     /control/maneuver_controller/maneuver_completion_token_acquisition_timeout_s: 0.1
     /control/maneuver_controller/use_nans_when_hovering: true
@@ -51,6 +52,13 @@
     /control/maneuver_controller/fly_to_position_blend_radius: 1.0
     /control/maneuver_controller/reached_yaw_error_threshold: 0.0872665
     /control/maneuver_controller/minimum_target_altitude: 1.0
+    /control/maneuver_controller/controlled_cancel_max_deceleration_m_s2: 0.5
+    /control/maneuver_controller/controlled_cancel_max_jerk_m_s3: 1.0
+    /control/maneuver_controller/controlled_cancel_max_yaw_deceleration_rad_s2: 0.75
+    /control/maneuver_controller/controlled_cancel_max_yaw_jerk_rad_s3: 1.5
+    /control/maneuver_controller/controlled_cancel_velocity_threshold_m_s: 0.08
+    /control/maneuver_controller/controlled_cancel_yaw_rate_threshold_rad_s: 0.08
+    /control/maneuver_controller/controlled_cancel_settle_time_s: 0.2
     /control/maneuver_controller/cable_landing_min_z_distance: 1.0
     /control/maneuver_controller/cable_landing_max_z_distance: 2.0
     /control/maneuver_controller/cable_landing_max_initial_distance_error: 0.25
@@ -166,6 +174,7 @@
     /control/trajectory_interpolator/interpolation_avg_yaw_rate_rad_s: 0.5
     /control/trajectory_interpolator/interpolation_max_velocity_m_s: 1.0
     /control/trajectory_interpolator/interpolation_max_acceleration_m_s2: 0.5
+    /control/trajectory_interpolator/interpolation_max_jerk_m_s3: 1.0
     /control/trajectory_interpolator/interpolation_max_yaw_rate_rad_s: 0.75
     /control/trajectory_interpolator/interpolation_max_yaw_acceleration_rad_s2: 0.75
     /control/trajectory_interpolator/reference_trajectory_length_N: 10
@@ -194,15 +203,25 @@
     /payload/charger_gripper/battery_voltage_avg_filter_size: 10
     /payload/charger_gripper/charging_power_avg_filter_size: 10
     /mission/mission_specification_file: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
+    /mission/rosbag_recorder/artifact_root: /tmp/iii_drone/rosbags
     /mission/use_nans_when_hovering: true
     /mission/max_failed_attempts_during_maneuver: 3
-    /mission/wait_for_maneuver_start_timeout_ms: 1000
+    /mission/wait_for_maneuver_start_timeout_ms: 3000
     /mission/get_reference_timeout_ms: 150
+    /mission/reference_loss_timeout_ms: 500
+    /mission/reference_rebase_timeout_ms: 2000
+    /mission/reference_continuity_position_tolerance_m: 0.25
+    /mission/reference_continuity_velocity_tolerance_m_s: 0.5
+    /mission/reference_continuity_acceleration_tolerance_m_s2: 0.75
+    /mission/reference_continuity_yaw_tolerance_rad: 0.35
+    /mission/reference_continuity_yaw_rate_tolerance_rad_s: 0.5
+    /mission/reference_continuity_yaw_acceleration_tolerance_rad_s2: 0.75
     /mission/manual_stick_input_threshold: 0.35
     /mission/mission_done_select_mode: hold
     /mission/bypass_battery_checks: false
-    /inspection_demo/inspection_clearance_m: 1.5
-    /inspection_demo/pylon_low_height_above_ground_m: 1.5
+    /inspection_demo/inspection_clearance_m: 2.0
+    /inspection_demo/pylon_end_clearance_m: 2.0
+    /inspection_demo/pylon_structure_extent_m: 2.0
     /inspection_demo/max_pylon_powerline_direction_mismatch_rad: 0.35
     /inspection_demo/pylon_span_margin_m: 0.5
     /inspection_demo/battery_topic_timeout_s: 2.0
@@ -251,9 +270,9 @@
     - 0.0
     - 0.0
     /tf/sim/drone_to_mmwave:
-    - 0.0
-    - 0.0
-    - 0.1
+    - 0.025
+    - -0.24
+    - 0.295
     - 3.1415
     - -1.57079632679
     - 0.0
