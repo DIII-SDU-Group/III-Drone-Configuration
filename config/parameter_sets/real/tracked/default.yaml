@@ -202,7 +202,6 @@
     /payload/charger_gripper/status_message_gripper_status_index: 7
     /payload/charger_gripper/battery_voltage_avg_filter_size: 10
     /payload/charger_gripper/charging_power_avg_filter_size: 10
-    /mission/mission_specification_file: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
     /mission/rosbag_recorder/artifact_root: /tmp/iii_drone/rosbags
     /mission/use_nans_when_hovering: true
     /mission/max_failed_attempts_during_maneuver: 3
