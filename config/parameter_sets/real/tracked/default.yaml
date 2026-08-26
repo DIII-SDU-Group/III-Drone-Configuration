@@ -184,7 +184,7 @@
     /payload/charger_gripper/gripper_close_command: 1
     /payload/charger_gripper/gripper_command_complete_poll_interval_ms: 100
     /payload/charger_gripper/gripper_command_complete_timeout_ms: 1000
-    /payload/charger_gripper/charger_gripper_serial_port: /dev/charger
+    /payload/charger_gripper/charger_gripper_serial_port: /dev/iii/charger-gripper
     /payload/charger_gripper/charger_gripper_serial_baudrate: 115200
     /payload/charger_gripper/charger_gripper_serial_timeout: 0.1
     /payload/charger_gripper/gripper_command_serial_period_ms: 500
@@ -286,7 +286,7 @@ sensor:
   cable_camera:
     usb_cam:
       ros__parameters:
-        video_device: /dev/video0
+        video_device: /dev/iii/cable-camera
         framerate: 10.0
         io_method: mmap
         frame_id: camera
@@ -301,6 +301,6 @@ supervision:
       monitor_node_states: false
 /sensor/mmwave/mmwave:
   ros__parameters:
-    cli_port: /dev/mmWaveCli
-    data_port: /dev/mmWaveData
+    cli_port: /dev/iii/mmwave-cli
+    data_port: /dev/iii/mmwave-data
     mmwave_frame_id: mmwave
