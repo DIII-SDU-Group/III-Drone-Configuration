@@ -142,7 +142,7 @@ ament_target_dependencies(iii_drone_configuration_lib
 )
 
 ament_export_libraries(iii_drone_configuration_lib)
-ament_export_include_directories(${III_DRONE_CONFIGURATION_INCLUDE_DIRS})
+ament_export_include_directories(include)
 
 pybind11_add_module(_native MODULE
   "${PROJECT_SOURCE_DIR}/src/python_bindings.cpp"
