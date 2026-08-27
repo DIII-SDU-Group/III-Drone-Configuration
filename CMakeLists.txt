@@ -215,6 +215,58 @@ install(
 install(
   DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
+  PATTERN "configuration_contract" EXCLUDE
+)
+
+# Capture the immutable configuration contract at CMake configure time.  This is
+# intentionally staged through the build tree so --symlink-install points at a
+# built artifact rather than directly at editable workspace source files.
+set(III_CONFIGURATION_CONTRACT_BUILD_DIR
+  "${CMAKE_CURRENT_BINARY_DIR}/configuration_contract"
+)
+file(MAKE_DIRECTORY
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/schema"
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/tracked_defaults/real"
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/tracked_defaults/sim"
+)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/config/configuration_contract/package-manifest.json"
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/package-manifest.json"
+  COPYONLY
+)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/config/configuration_contract/configuration-package.schema.json"
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/configuration-package.schema.json"
+  COPYONLY
+)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/config/configuration_contract/profiles.json"
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/profiles.json"
+  COPYONLY
+)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/config/configuration_contract/migrations.json"
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/migrations.json"
+  COPYONLY
+)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/config/parameters/parameter_manifest.yaml"
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/schema/parameter_manifest.yaml"
+  COPYONLY
+)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/config/parameter_sets/real/tracked/default.yaml"
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/tracked_defaults/real/default.yaml"
+  COPYONLY
+)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/config/parameter_sets/sim/tracked/default.yaml"
+  "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/tracked_defaults/sim/default.yaml"
+  COPYONLY
+)
+install(
+  DIRECTORY "${III_CONFIGURATION_CONTRACT_BUILD_DIR}/"
+  DESTINATION share/${PROJECT_NAME}/configuration_contract
 )
 
 if(BUILD_TESTING)
@@ -258,7 +310,6 @@ if(BUILD_TESTING)
   target_link_libraries(test_configurator iii_drone_configuration_lib)
   target_compile_definitions(test_configurator PRIVATE
     TEST_SCHEMA_FILE="${III_DRONE_CONFIGURATION_TEST_SCHEMA_FILE}"
-    PRODUCTION_SCHEMA_FILE="${III_DRONE_CONFIGURATION_PRODUCTION_SCHEMA_FILE}"
   )
   ament_target_dependencies(test_configurator rclcpp rclcpp_lifecycle)
 
@@ -283,6 +334,13 @@ if(BUILD_TESTING)
   ament_add_pytest_test(
     test_python_schema_utils
     "${PROJECT_SOURCE_DIR}/test/test_schema_utils.py"
+    APPEND_ENV
+      PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+  )
+
+  ament_add_pytest_test(
+    test_python_installed_contracts
+    "${PROJECT_SOURCE_DIR}/test/test_installed_contracts.py"
     APPEND_ENV
       PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
   )

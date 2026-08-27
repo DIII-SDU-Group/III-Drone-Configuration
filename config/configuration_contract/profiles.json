@@ -1,0 +1,29 @@
+{
+  "schema": "iii.configuration-runtime-profiles/v1",
+  "profiles": [
+    {
+      "runtime_profile": "hil",
+      "parameter_profile": "sim",
+      "selector_scope": "hil",
+      "bootable": false
+    },
+    {
+      "runtime_profile": "opti_track",
+      "parameter_profile": "real",
+      "selector_scope": "opti_track",
+      "bootable": true
+    },
+    {
+      "runtime_profile": "real",
+      "parameter_profile": "real",
+      "selector_scope": "real",
+      "bootable": true
+    },
+    {
+      "runtime_profile": "sim",
+      "parameter_profile": "sim",
+      "selector_scope": "sim",
+      "bootable": true
+    }
+  ]
+}
