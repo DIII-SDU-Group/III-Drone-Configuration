@@ -101,6 +101,31 @@ def test_aircraft_and_reserved_profiles_never_seed_at_runtime(monkeypatch, tmp_p
     assert not config.exists()
 
 
+def test_opti_track_alias_uses_receiver_reconciled_real_state_without_mutation(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
+    config = tmp_path / "iii_drone"
+    selector = config / "profiles" / "real.yaml"
+    parameter_file = config / "parameter_sets" / "real" / "tracked" / "default.yaml"
+    state = config / "state" / "real" / "contract.json"
+    selector.parent.mkdir(parents=True)
+    parameter_file.parent.mkdir(parents=True)
+    state.parent.mkdir(parents=True)
+    selector.write_text(
+        "version: 1\nactive_parameter_set: tracked/default.yaml\n",
+        encoding="utf-8",
+    )
+    parameter_file.write_text("/**:\n  ros__parameters: {}\n", encoding="utf-8")
+    state.write_text("{}\n", encoding="utf-8")
+
+    assert seed_runtime_configuration("opti_track") == {}
+    assert resolve_active_parameter_file("opti_track") == parameter_file
+    assert not (config / "profiles" / "opti_track.yaml").exists()
+    assert not (config / "parameter_sets" / "opti_track").exists()
+
+
 def test_active_parameter_file_prefers_default_snapshot(monkeypatch, tmp_path):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("SIMULATION", "true")

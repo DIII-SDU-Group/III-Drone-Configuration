@@ -28,6 +28,9 @@ CHECKPOINT_SCHEMA = "iii.configuration-tuning-checkpoint/v1"
 
 HASH = re.compile(r"^[a-f0-9]{64}$")
 IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,127}$")
+NODE_IDENTITY = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9_.:@+-]*(?:/[A-Za-z0-9][A-Za-z0-9_.:@+-]*){0,15}$"
+)
 PARAMETER = re.compile(r"^/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$")
 RESTART_KINDS = frozenset({"none", "node", "runtime"})
 
@@ -124,6 +127,14 @@ def _require_identity(value: Any, *, label: str, allow_hash: bool = True) -> str
         return value
     if not IDENTITY.fullmatch(value):
         raise TuningError(f"{label} is malformed")
+    return value
+
+
+def _require_node_identity(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        raise TuningError("configuration node identity is missing")
+    if len(value) > 255 or not NODE_IDENTITY.fullmatch(value):
+        raise TuningError("configuration node identity is malformed")
     return value
 
 
@@ -900,9 +911,7 @@ class TuningSessionStore:
                 raise TuningError(
                     "configuration edits contain invalid or duplicate names"
                 )
-            node_id = _require_identity(
-                item["node_id"], label="configuration node identity", allow_hash=False
-            )
+            node_id = _require_node_identity(item["node_id"])
             restart = item["restart_required"]
             if restart not in RESTART_KINDS:
                 raise TuningError("configuration edit has invalid restart semantics")

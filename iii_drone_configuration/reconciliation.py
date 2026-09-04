@@ -167,6 +167,16 @@ def _identity(value: Mapping[str, Any], identity_field: str | None = None) -> st
     return hashlib.sha256(_canonical(document)).hexdigest()
 
 
+def _contract_identity(value: Mapping[str, Any], identity_field: str) -> str:
+    """Hash a cross-component contract using the shared newline-free encoding."""
+    document = {key: item for key, item in value.items() if key != identity_field}
+    return hashlib.sha256(
+        json.dumps(
+            document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -1562,7 +1572,7 @@ def plan_configuration_checkpoint(
         "configuration_manifest_id": manifest_id,
         "files": files,
     }
-    value["checkpoint_id"] = _identity(value, "checkpoint_id")
+    value["checkpoint_id"] = _contract_identity(value, "checkpoint_id")
     return {
         **value,
         "path": str(destination_root / value["checkpoint_id"]),
@@ -1575,6 +1585,7 @@ def plan_reconciled_checkpoint(
     plan: ReconciliationPlan,
     *,
     source_checkpoint: Path,
+    source_state_root: Path | None = None,
     checkpoint_root: Path,
     decisions: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -1586,16 +1597,22 @@ def plan_reconciled_checkpoint(
         )
     normalized = validate_reintroduction_decisions(plan, decisions or {})
     source = _require_absolute(source_checkpoint, label="source checkpoint")
+    state = _require_absolute(
+        source_state_root if source_state_root is not None else source,
+        label="source configuration state",
+    )
     destination = _require_absolute(checkpoint_root, label="checkpoint root")
     verify_configuration_checkpoint(source)
     inventory: dict[str, bytes] = {}
-    for path in sorted(source.rglob("*")):
-        if path == source / "checkpoint.json":
+    if state.is_symlink() or not state.is_dir():
+        raise ReconciliationError("source configuration state is unsafe")
+    for path in sorted(state.rglob("*")):
+        if path == state / "checkpoint.json":
             continue
         if path.is_symlink():
             raise ReconciliationError("source configuration checkpoint contains a link")
         if path.is_file():
-            inventory[path.relative_to(source).as_posix()] = _regular_bytes(
+            inventory[path.relative_to(state).as_posix()] = _regular_bytes(
                 path, label="source configuration checkpoint content"
             )
     inventory.update(plan._shadow_documents)
@@ -1615,7 +1632,7 @@ def plan_reconciled_checkpoint(
         "configuration_manifest_id": plan.new_manifest_id,
         "files": files,
     }
-    value["checkpoint_id"] = _identity(value, "checkpoint_id")
+    value["checkpoint_id"] = _contract_identity(value, "checkpoint_id")
     return {
         **value,
         "path": str(destination / value["checkpoint_id"]),
@@ -1686,6 +1703,10 @@ def seal_configuration_checkpoint(
                 path.chmod(0o444)
             elif path.is_dir():
                 path.chmod(0o555)
+        # rglob yields descendants, not the checkpoint root itself.  The
+        # unprivileged runtime must be able to traverse that root through the
+        # ``configuration/current`` selector.
+        temporary.chmod(0o555)
         os.replace(temporary, final)
         _fsync_directory(destination_root)
     except Exception:
@@ -1713,7 +1734,7 @@ def verify_configuration_checkpoint(path: Path) -> dict[str, Any]:
             "files",
         }
         or value.get("schema") != CHECKPOINT_SCHEMA
-        or value.get("checkpoint_id") != _identity(value, "checkpoint_id")
+        or value.get("checkpoint_id") != _contract_identity(value, "checkpoint_id")
         or root.name != value.get("checkpoint_id")
     ):
         raise ReconciliationError("configuration checkpoint identity is invalid")
@@ -1795,6 +1816,7 @@ def verify_configuration_checkpoint(path: Path) -> dict[str, Any]:
 def materialize_receiver_stage(
     *,
     source_checkpoint: Path,
+    source_state_root: Path | None = None,
     stage_root: Path,
     operation_id: str,
     target_id: str,
@@ -1803,6 +1825,10 @@ def materialize_receiver_stage(
 
     _require_operation_id(operation_id)
     source = _require_absolute(source_checkpoint, label="source checkpoint")
+    state = _require_absolute(
+        source_state_root if source_state_root is not None else source,
+        label="source configuration state",
+    )
     destination = _require_absolute(stage_root, label="stage root")
     manifest = verify_configuration_checkpoint(source)
     if manifest.get("target_id") != target_id:
@@ -1815,7 +1841,7 @@ def materialize_receiver_stage(
     )
     try:
         shutil.copytree(
-            source,
+            state,
             temporary / "state",
             dirs_exist_ok=True,
             ignore=shutil.ignore_patterns("checkpoint.json"),
@@ -1835,3 +1861,5 @@ def materialize_receiver_stage(
         shutil.rmtree(temporary, ignore_errors=True)
         raise
     return destination / "state"
+    if state.is_symlink() or not state.is_dir():
+        raise ReconciliationError("source configuration state is unsafe")

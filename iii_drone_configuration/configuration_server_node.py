@@ -1846,8 +1846,17 @@ class ConfigurationServer(Node):
                     )
                     return response
 
+            # The requested file is now the authoritative description of the
+            # durable values, even when it already matched and no transaction
+            # was required.  Do not leave a generated runtime snapshot (or the
+            # previous boot default) falsely reported as the loaded snapshot.
+            previous_runtime_file_name = self._runtime_snapshot_file_name
+            self.current_parameter_file = file_reference
+            self._runtime_snapshot_file_name = None
+            if previous_runtime_file_name != file_reference:
+                self._delete_runtime_snapshot_file(previous_runtime_file_name)
+
             if request.set_as_default:
-                previous_runtime_file_name = self._runtime_snapshot_file_name
                 active_reference = self.current_parameter_file
                 active_path = resolve_parameter_set_path(
                     self._profile_name, active_reference
@@ -1856,9 +1865,6 @@ class ConfigurationServer(Node):
                 self._mark_current_configuration_as_default_baseline(
                     active_reference, active_path
                 )
-                self._runtime_snapshot_file_name = None
-                if previous_runtime_file_name != active_reference:
-                    self._delete_runtime_snapshot_file(previous_runtime_file_name)
 
             response.success = True
             response.message = (

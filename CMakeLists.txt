@@ -150,6 +150,14 @@ pybind11_add_module(_native MODULE
 set_target_properties(_native PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}"
 )
+if(CMAKE_CROSSCOMPILING)
+  # FindPython runs the build-host interpreter, whose EXT_SUFFIX names x86_64.
+  # The module itself is linked for the aircraft, so give it the target CPython
+  # ABI suffix explicitly or Python on ARM64 will silently ignore it.
+  set_target_properties(_native PROPERTIES
+    SUFFIX ".cpython-312-aarch64-linux-gnu.so"
+  )
+endif()
 target_link_libraries(_native
   PRIVATE
   iii_drone_configuration_lib

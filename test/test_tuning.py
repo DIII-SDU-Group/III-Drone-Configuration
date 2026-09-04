@@ -108,6 +108,29 @@ def test_session_baseline_is_immutable_and_commit_is_revisioned_durable_and_repl
     assert replay["revision"] == 1
 
 
+def test_ros_scoped_configuration_node_identity_is_accepted(tmp_path: Path) -> None:
+    tuning = store(tmp_path)
+    requested = edits(("/control/gain", 2.0, "none"))
+    requested[0]["node_id"] = "control/maneuver_controller/maneuver_controller"
+
+    plan = prepare(tuning, requested=requested)
+
+    assert isinstance(plan, TransactionPlan)
+    assert plan.edits[0]["node_id"] == "control/maneuver_controller/maneuver_controller"
+
+
+@pytest.mark.parametrize("node_id", ["/absolute/node", "control/../node", "control//node"])
+def test_configuration_node_identity_rejects_path_syntax(
+    tmp_path: Path, node_id: str
+) -> None:
+    tuning = store(tmp_path)
+    requested = edits(("/control/gain", 2.0, "none"))
+    requested[0]["node_id"] = node_id
+
+    with pytest.raises(TuningError, match="configuration node identity is malformed"):
+        prepare(tuning, requested=requested)
+
+
 def test_validate_all_rejection_and_stale_revision_never_mutate_values(
     tmp_path: Path,
 ) -> None:

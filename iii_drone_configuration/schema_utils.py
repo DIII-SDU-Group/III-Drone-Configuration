@@ -315,8 +315,22 @@ def seed_runtime_configuration(
         }
 
     selector_file = resolve_profile_selector_file(selector_scope)
-    active_file = resolve_active_parameter_file(selector_scope)
+    active_file = _resolve_active_parameter_file_for_scope(selector_scope)
     state_file = iii_config_dir / "state" / selector_scope / "contract.json"
+    # The initial OptiTrack profile is an explicit, read-only alias of the real
+    # parameter profile.  Older commissioned checkpoints legitimately predate a
+    # dedicated OptiTrack selector.  In that case, verify and consume the
+    # receiver-owned real selector without creating or copying mutable state at
+    # runtime.  Once an OptiTrack selector exists it remains independently
+    # scoped and is preferred above this compatibility fallback.
+    if (
+        selector_scope != profile.parameter_profile
+        and not all(path.is_file() for path in (selector_file, active_file, state_file))
+    ):
+        selector_scope = profile.parameter_profile
+        selector_file = resolve_profile_selector_file(selector_scope)
+        active_file = _resolve_active_parameter_file_for_scope(selector_scope)
+        state_file = iii_config_dir / "state" / selector_scope / "contract.json"
     missing = [
         str(path)
         for path in (selector_file, active_file, state_file)
@@ -356,18 +370,33 @@ def persist_default_parameter_file_name(profile_name: str, file_name: str) -> Pa
     return persist_active_parameter_set_reference(profile_name, file_name)
 
 
-def resolve_active_parameter_file(profile_name: str) -> Path:
-    explicit_file = os.environ.get("III_SYSTEM_PARAMETER_FILE")
-    if explicit_file:
-        return Path(os.path.expanduser(explicit_file))
-
-    active_reference = load_active_parameter_set_reference(profile_name)
-    active_path = resolve_parameter_set_path(profile_name, active_reference)
+def _resolve_active_parameter_file_for_scope(selector_scope: str) -> Path:
+    active_reference = load_active_parameter_set_reference(selector_scope)
+    active_path = resolve_parameter_set_path(selector_scope, active_reference)
     if active_path.exists():
         return active_path
 
-    tracked_path = resolve_tracked_parameter_set_path(profile_name)
+    tracked_path = resolve_tracked_parameter_set_path(selector_scope)
     if tracked_path.exists():
         return tracked_path
 
     return active_path
+
+
+def resolve_active_parameter_file(profile_name: str) -> Path:
+    explicit_file = os.environ.get("III_SYSTEM_PARAMETER_FILE")
+    if explicit_file:
+        return Path(os.path.expanduser(explicit_file))
+    contract = load_installed_contract(resolve_installed_contract_root()).contract
+    profile = contract.profile(profile_name)
+    own_selector = resolve_profile_selector_file(profile.selector_scope)
+    own_state = (
+        resolve_iii_config_dir() / "state" / profile.selector_scope / "contract.json"
+    )
+    selector_scope = profile.selector_scope
+    if (
+        selector_scope != profile.parameter_profile
+        and not (own_selector.is_file() and own_state.is_file())
+    ):
+        selector_scope = profile.parameter_profile
+    return _resolve_active_parameter_file_for_scope(selector_scope)

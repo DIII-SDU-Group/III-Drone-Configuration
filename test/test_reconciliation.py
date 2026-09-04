@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import stat
 
 import pytest
 import yaml
@@ -499,6 +500,16 @@ def test_checkpoint_round_trip_and_receiver_stage_never_edits_only_copy(tmp_path
     )
     verified = verify_configuration_checkpoint(Path(checkpoint["path"]))
     assert verified["checkpoint_id"] == checkpoint["checkpoint_id"]
+    assert stat.S_IMODE(Path(checkpoint["path"]).stat().st_mode) == 0o555
+    assert checkpoint["checkpoint_id"] == hashlib.sha256(
+        _canonical(
+            {
+                key: item
+                for key, item in verified.items()
+                if key != "checkpoint_id"
+            }
+        )
+    ).hexdigest()
     wrong_name = Path(checkpoint["path"]).parent / ("f" * 64)
     shutil.copytree(checkpoint["path"], wrong_name)
     with pytest.raises(ReconciliationError, match="checkpoint identity"):

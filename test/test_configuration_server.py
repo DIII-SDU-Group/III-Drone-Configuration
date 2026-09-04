@@ -272,7 +272,7 @@ def test_server_save_and_load_snapshot_callbacks(configured_server, monkeypatch)
     assert load_result.success
     assert "through configuration transaction" in load_result.message
     assert server.server_values["/control/mode"] == "manual"
-    assert server.current_parameter_file.startswith("snapshots/runtime_parameters_")
+    assert server.current_parameter_file == "snapshots/snapshot.yaml"
     session = server._require_tuning_store().status()
     assert session["revision"] == 1
     assert session["last_result"]["status"] == "committed"
