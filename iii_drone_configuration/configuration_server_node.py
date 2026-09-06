@@ -680,6 +680,17 @@ class ConfigurationServer(Node):
                     # with live updates so this pass cannot restore its stale
                     # initial snapshot over the newly accepted value.
                     with self._state_lock:
+                        # Lifecycle cleanup can destroy the timer while a
+                        # reconciliation callback is already waiting on a
+                        # managed-node service.  In that case cleanup clears
+                        # both the handler and authoritative values before this
+                        # callback resumes.  Treat the pass as cancelled rather
+                        # than indexing cleared state and crashing the node.
+                        if (
+                            self.parameter_handler is None
+                            or parameter_name not in self.server_values
+                        ):
+                            return
                         authoritative_value = self.server_values[parameter_name]
                         if values.get(parameter_name) != authoritative_value:
                             success, message = self._call_set_parameter(
@@ -705,6 +716,8 @@ class ConfigurationServer(Node):
                 )
 
             with self._state_lock:
+                if self.parameter_handler is None:
+                    return
                 for node_fq_name, record in discovered_records.items():
                     record.offline_since_monotonic = None
                     self.node_registry[node_fq_name] = record

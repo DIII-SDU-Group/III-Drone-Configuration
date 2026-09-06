@@ -205,6 +205,38 @@ def test_server_reconcile_does_not_restore_stale_value_during_live_update(
     )
 
 
+def test_server_reconcile_cancels_when_cleanup_clears_authority(
+    configured_server, monkeypatch
+):
+    server, _ = configured_server
+    updates = []
+
+    monkeypatch.setattr(
+        server,
+        "_get_node_fq_names",
+        lambda: ["/node_a", server.get_fully_qualified_name()],
+    )
+    monkeypatch.setattr(server, "_call_list_parameters", lambda _: ["/control/dt"])
+
+    def read_after_cleanup(node_fq_name, parameter_names):
+        with server._state_lock:
+            server.parameter_handler = None
+            server.server_values.clear()
+        return {"/control/dt": 0.01}
+
+    monkeypatch.setattr(server, "_call_get_parameters", read_after_cleanup)
+    monkeypatch.setattr(
+        server,
+        "_call_set_parameter",
+        lambda *args: (updates.append(args) or True, ""),
+    )
+
+    server.reconcile_nodes()
+
+    assert updates == []
+    assert server.node_registry == {}
+
+
 def test_server_live_parameter_update_allows_bounded_node_callback_latency(
     configured_server, monkeypatch
 ):
