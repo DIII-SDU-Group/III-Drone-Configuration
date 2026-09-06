@@ -157,3 +157,24 @@ def test_production_ros_param_files_are_schema_compatible(env_var_name, fallback
                     assert all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in value)
                 elif isinstance(sample, str):
                     assert all(isinstance(item, str) for item in value)
+
+
+@pytest.mark.parametrize(
+    "fallback_name",
+    [
+        "parameter_sets/real/tracked/default.yaml",
+        "parameter_sets/sim/tracked/default.yaml",
+    ],
+)
+def test_planned_reference_velocity_does_not_exceed_continuity_guard(fallback_name):
+    ros_params_file = _production_ros_params_file("UNUSED_PROFILE_PATH", fallback_name)
+    parameters = yaml.safe_load(ros_params_file.read_text())["/**"]["ros__parameters"]
+
+    assert (
+        parameters["/control/trajectory_interpolator/interpolation_max_velocity_m_s"]
+        <= parameters["/mission/reference_continuity_velocity_tolerance_m_s"]
+    )
+    assert (
+        parameters["/control/trajectory_interpolator/interpolation_avg_velocity_m_s"]
+        <= parameters["/control/trajectory_interpolator/interpolation_max_velocity_m_s"]
+    )

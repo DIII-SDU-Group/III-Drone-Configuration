@@ -873,7 +873,7 @@ payload:
       min: 1
     charger_gripper_serial_port:
       type: string
-      value: /dev/charger
+      value: /dev/iii/charger-gripper
       constant: true
     charger_gripper_serial_baudrate:
       type: int
@@ -952,10 +952,6 @@ mission:
       value: /tmp/iii_drone/rosbags
       description: Root directory for all manual and mission rosbag recordings.
       constant: true
-  mission_specification_file:
-    type: string
-    value: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
-    constant: true
   use_nans_when_hovering:
     type: bool
     value: true
