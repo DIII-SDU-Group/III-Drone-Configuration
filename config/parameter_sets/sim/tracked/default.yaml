@@ -172,9 +172,9 @@
     /control/trajectory_generator/cable_aware_grid_margin_m: 3.0
     /control/trajectory_generator/cable_aware_clearance_m: 1.0
     /control/trajectory_generator/cable_aware_max_astar_expansions: 50000
-    /control/trajectory_interpolator/interpolation_avg_velocity_m_s: 0.5
+    /control/trajectory_interpolator/interpolation_avg_velocity_m_s: 0.45
     /control/trajectory_interpolator/interpolation_avg_yaw_rate_rad_s: 0.5
-    /control/trajectory_interpolator/interpolation_max_velocity_m_s: 1.5
+    /control/trajectory_interpolator/interpolation_max_velocity_m_s: 0.45
     /control/trajectory_interpolator/interpolation_max_acceleration_m_s2: 0.5
     /control/trajectory_interpolator/interpolation_max_jerk_m_s3: 1.0
     /control/trajectory_interpolator/interpolation_max_yaw_rate_rad_s: 0.75

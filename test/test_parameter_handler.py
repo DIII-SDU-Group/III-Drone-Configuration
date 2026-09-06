@@ -171,6 +171,10 @@ def test_planned_reference_velocity_does_not_exceed_continuity_guard(fallback_na
     parameters = yaml.safe_load(ros_params_file.read_text())["/**"]["ros__parameters"]
 
     assert (
-        parameters["/control/trajectory_interpolator/interpolation_avg_velocity_m_s"]
+        parameters["/control/trajectory_interpolator/interpolation_max_velocity_m_s"]
         <= parameters["/mission/reference_continuity_velocity_tolerance_m_s"]
+    )
+    assert (
+        parameters["/control/trajectory_interpolator/interpolation_avg_velocity_m_s"]
+        <= parameters["/control/trajectory_interpolator/interpolation_max_velocity_m_s"]
     )
