@@ -5,7 +5,7 @@
       "runtime_profile": "hil",
       "parameter_profile": "sim",
       "selector_scope": "hil",
-      "bootable": false
+      "bootable": true
     },
     {
       "runtime_profile": "opti_track",

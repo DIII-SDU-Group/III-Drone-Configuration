@@ -145,6 +145,43 @@ def _set_value(path: Path, name: str, value: object) -> None:
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
+def test_identical_startup_reconciliation_is_content_idempotent(tmp_path: Path):
+    contract = _contract(tmp_path, "contract")
+    state = tmp_path / "state"
+    operations = tmp_path / "operations"
+    _initial_state(contract, state)
+    reconcile_simulation_startup(
+        immutable_root=contract,
+        writable_state_root=state,
+        operations_root=operations,
+        runtime_profile="sim",
+        target_id="sim",
+        release_id="release-old",
+    )
+    before = {
+        path.relative_to(state).as_posix(): path.read_bytes()
+        for path in state.rglob("*")
+        if path.is_file()
+    }
+
+    result = reconcile_simulation_startup(
+        immutable_root=contract,
+        writable_state_root=state,
+        operations_root=operations,
+        runtime_profile="sim",
+        target_id="sim",
+        release_id="release-old",
+    )
+    after = {
+        path.relative_to(state).as_posix(): path.read_bytes()
+        for path in state.rglob("*")
+        if path.is_file()
+    }
+
+    assert result.status == "complete"
+    assert after == before
+
+
 def _select(root: Path, reference: str) -> None:
     path = root / "profiles/sim.yaml"
     path.write_text(
@@ -485,6 +522,76 @@ def test_interrupted_reconciliation_resumes_and_receiver_requires_private_stage(
         execute_reconciliation(receiver)
 
 
+def test_parameter_set_scan_tolerates_atomic_file_renamed_during_walk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import iii_drone_configuration.reconciliation as module
+
+    base = tmp_path / "parameter_sets" / "sim" / "tracked"
+    base.mkdir(parents=True)
+    selected = base / "default.yaml"
+    selected.write_text("/**:\n  ros__parameters: {}\n", encoding="utf-8")
+    temporary = base / ".default.yaml.atomic"
+    temporary.write_text("pending", encoding="utf-8")
+    original = Path.lstat
+
+    def renamed(self: Path):
+        if self == temporary:
+            raise FileNotFoundError(self)
+        return original(self)
+
+    monkeypatch.setattr(Path, "lstat", renamed)
+    assert module._set_paths(tmp_path, "sim") == {"tracked/default.yaml": selected}
+
+
+def test_legacy_manifest_sentinel_release_binding_is_repaired(tmp_path: Path):
+    contract = _contract(tmp_path, "contract")
+    state = tmp_path / "state"
+    operations = tmp_path / "ops"
+    _initial_state(contract, state)
+    binding_path = state / "state/sim/contract.json"
+    binding = json.loads(binding_path.read_text(encoding="utf-8"))
+    binding["release_id"] = _manifest(contract)
+    binding["state_id"] = hashlib.sha256(
+        _canonical(
+            {key: value for key, value in binding.items() if key != "state_id"}
+        ) + b"\n"
+    ).hexdigest()
+    binding_path.write_bytes(_canonical(binding) + b"\n")
+
+    plan = _plan(
+        old=contract,
+        new=contract,
+        state=state,
+        operations=operations,
+        operation="repair-legacy-release-binding-0001",
+        old_release="release-old",
+        new_release="release-new",
+    )
+    assert execute_reconciliation(plan).status == "complete"
+    repaired = json.loads(binding_path.read_text(encoding="utf-8"))
+    assert repaired["release_id"] == "release-new"
+    assert repaired["manifest_id"] == _manifest(contract)
+
+    repaired["release_id"] = "unrelated-release"
+    repaired["state_id"] = hashlib.sha256(
+        _canonical(
+            {key: value for key, value in repaired.items() if key != "state_id"}
+        ) + b"\n"
+    ).hexdigest()
+    binding_path.write_bytes(_canonical(repaired) + b"\n")
+    with pytest.raises(ReconciliationError, match="bound to another"):
+        _plan(
+            old=contract,
+            new=contract,
+            state=state,
+            operations=operations,
+            operation="reject-unrelated-release-binding-0001",
+            old_release="release-new",
+            new_release="release-next",
+        )
+
+
 def test_checkpoint_round_trip_and_receiver_stage_never_edits_only_copy(tmp_path: Path):
     contract = _contract(tmp_path, "contract")
     state = tmp_path / "state"
@@ -545,3 +652,39 @@ def test_wrong_profile_and_incompatible_contract_fail_before_mutation(tmp_path: 
             mode="simulation",
         )
     assert not (tmp_path / "state").exists()
+
+
+def test_receiver_reconciliation_accepts_aircraft_hosted_hil_profile(tmp_path: Path):
+    contract = _contract(tmp_path, "contract")
+    plan = plan_reconciliation(
+        old_immutable_root=contract,
+        new_immutable_root=contract,
+        writable_state_root=tmp_path / "hil-state",
+        operations_root=tmp_path / "hil-ops",
+        operation_id="hil-receiver-plan-0001",
+        runtime_profile="hil",
+        target_id="aircraft-01",
+        old_release_id="old",
+        new_release_id="new",
+        mode="receiver-staged",
+    )
+    assert plan.runtime_profile == "hil"
+    assert plan.parameter_profile == "sim"
+
+
+def test_receiver_reconciliation_rejects_workstation_sim_profile(tmp_path: Path):
+    contract = _contract(tmp_path, "contract")
+    with pytest.raises(ReconciliationError, match="only aircraft state"):
+        plan_reconciliation(
+            old_immutable_root=contract,
+            new_immutable_root=contract,
+            writable_state_root=tmp_path / "sim-state",
+            operations_root=tmp_path / "sim-ops",
+            operation_id="sim-receiver-plan-0001",
+            runtime_profile="sim",
+            target_id="sim",
+            old_release_id="old",
+            new_release_id="new",
+            mode="receiver-staged",
+        )
+    assert not (tmp_path / "sim-state").exists()

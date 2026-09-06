@@ -142,7 +142,8 @@ Active parameter-set resolution order:
 - The service layer still uses `default_parameter_file` naming in a few message fields for compatibility, even though the runtime model is now selector-driven parameter sets.
 - The package has both C++ and Python validation implementations; they are conceptually aligned, but maintenance should keep them in sync.
 - `opti_track` shares the immutable `real` default but has an independent living
-  selector scope. `hil` shares the `sim` baseline but remains non-bootable.
+  selector scope. `hil` shares the `sim` baseline and reconciles an independent
+  writable selector for split-host bench operation.
 
 Tracked defaults are source-owned release inputs. They may be changed only by the
 separate `iii config promotion plan/apply` workflow from a verified capture on a

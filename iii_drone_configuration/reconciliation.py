@@ -565,11 +565,18 @@ def _set_paths(root: Path, scope: str) -> dict[str, Path]:
         raise ReconciliationError("parameter-set profile root is unsafe")
     result: dict[str, Path] = {}
     for path in sorted(base.rglob("*")):
-        if path.is_symlink():
-            raise ReconciliationError(f"parameter set is unsafe: {path}")
-        if path.is_dir():
+        try:
+            mode = path.lstat().st_mode
+        except FileNotFoundError:
+            # Atomic writers create, fsync, and rename temporary siblings.
+            # A directory walk can legitimately retain one after its rename;
+            # treat that vanished entry as outside this snapshot.
             continue
-        if not path.is_file():
+        if stat.S_ISLNK(mode):
+            raise ReconciliationError(f"parameter set is unsafe: {path}")
+        if stat.S_ISDIR(mode):
+            continue
+        if not stat.S_ISREG(mode):
             raise ReconciliationError(f"parameter set contains a special path: {path}")
         if path.suffix != ".yaml":
             continue
@@ -681,9 +688,9 @@ def _tree_state_id(root: Path, scope: str) -> str:
     shadow_root = root / "shadows" / scope
     if shadow_root.exists():
         candidates.extend(sorted(shadow_root.rglob("*.json")))
-    state_path = root / "state" / scope / "contract.json"
-    if state_path.exists():
-        candidates.append(state_path)
+    # The state contract records the source tree identity. Including that
+    # contract in the identity makes every otherwise-idempotent reconciliation
+    # produce a different source/state pair on the next boot.
     for path in candidates:
         if not path.exists():
             continue
@@ -802,7 +809,11 @@ def plan_reconciliation(
     descriptor = new.profile(runtime_profile)
     if mode == "simulation" and descriptor.parameter_profile != "sim":
         raise ReconciliationError("simulation reconciliation may mutate only sim state")
-    if mode == "receiver-staged" and descriptor.parameter_profile != "real":
+    # HIL is an aircraft-hosted runtime even though it intentionally selects
+    # the simulation parameter family. The mutation boundary is the execution
+    # host/profile, not the parameter family's name. Only workstation-local
+    # `sim` reconciliation is forbidden through the receiver.
+    if mode == "receiver-staged" and descriptor.runtime_profile == "sim":
         raise ReconciliationError(
             "receiver reconciliation may mutate only aircraft state"
         )
@@ -834,17 +845,22 @@ def plan_reconciliation(
         )
     binding = _state_binding(writable, descriptor.selector_scope)
     if binding is not None:
+        binding_release_id = binding.get("release_id")
+        release_binding_matches = binding_release_id == old_release_id
+        legacy_manifest_sentinel = binding_release_id == old.manifest_id
         if (
             binding.get("target_id") != target_id
             or binding.get("selector_scope") != descriptor.selector_scope
             or binding.get("parameter_profile") != descriptor.parameter_profile
             or binding.get("manifest_id") != old.manifest_id
-            or binding.get("release_id") != old_release_id
+            or not (release_binding_matches or legacy_manifest_sentinel)
         ):
             raise ReconciliationError(
                 "writable configuration is bound to another target, release, profile, or manifest"
             )
-    elif old.manifest_id != new.manifest_id or old_release_id != new_release_id:
+    elif (
+        paths or shadows or selector_bytes is not None
+    ) and (old.manifest_id != new.manifest_id or old_release_id != new_release_id):
         raise ReconciliationError(
             "unbound writable configuration cannot be migrated across releases"
         )
@@ -1615,9 +1631,34 @@ def plan_reconciled_checkpoint(
             inventory[path.relative_to(state).as_posix()] = _regular_bytes(
                 path, label="source configuration checkpoint content"
             )
-    inventory.update(plan._shadow_documents)
-    inventory.update(_apply_review_decisions(plan, normalized))
-    inventory.pop(".iii-reconciliation-stage.json", None)
+    try:
+        configuration_prefix = plan.writable_state_root.relative_to(state)
+    except ValueError as exc:
+        raise ReconciliationError(
+            "reconciliation state root is outside the checkpoint container"
+        ) from exc
+
+    def checkpoint_path(relative: str) -> str:
+        path = configuration_prefix / PurePosixPath(relative)
+        return path.as_posix()
+
+    inventory.update(
+        {
+            checkpoint_path(relative): data
+            for relative, data in plan._shadow_documents.items()
+        }
+    )
+    inventory.update(
+        {
+            checkpoint_path(relative): data
+            for relative, data in _apply_review_decisions(plan, normalized).items()
+        }
+    )
+    inventory = {
+        relative: data
+        for relative, data in inventory.items()
+        if PurePosixPath(relative).name != ".iii-reconciliation-stage.json"
+    }
     files = [
         {"path": relative, "sha256": _sha256(data), "size": len(data)}
         for relative, data in sorted(inventory.items())

@@ -7,6 +7,7 @@ from iii_drone_configuration.schema_utils import (
     resolve_active_parameter_file,
     resolve_default_parameter_file_name,
     resolve_schema_file,
+    runtime_profile_name_from_environment,
     seed_runtime_configuration,
 )
 from iii_drone_configuration.installed_contracts import resolve_installed_contract_root
@@ -35,6 +36,16 @@ def test_resolve_schema_file_uses_only_installed_immutable_contract(
         == resolve_installed_contract_root() / "schema" / "parameter_manifest.yaml"
     )
     assert not schema_path.resolve().is_relative_to(Path(__file__).resolve().parents[1])
+
+
+def test_runtime_profile_identity_is_independent_of_simulation_behavior(monkeypatch):
+    monkeypatch.setenv("SIMULATION", "true")
+    monkeypatch.setenv("III_SYSTEM_PROFILE", "hil")
+
+    assert runtime_profile_name_from_environment() == "hil"
+
+    monkeypatch.delenv("III_SYSTEM_PROFILE")
+    assert runtime_profile_name_from_environment() == "sim"
 
 
 def test_seed_runtime_configuration_populates_config_root_without_overwriting(
@@ -87,18 +98,51 @@ def test_seed_runtime_configuration_never_copies_schema_or_overwrites_parameter_
     assert not (tmp_path / "iii_drone" / "parameters").exists()
 
 
-def test_aircraft_and_reserved_profiles_never_seed_at_runtime(monkeypatch, tmp_path):
+def test_aircraft_profiles_never_seed_at_runtime(monkeypatch, tmp_path):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
 
     with pytest.raises(ReconciliationError, match="receiver-reconciled"):
         seed_runtime_configuration("real")
     with pytest.raises(ReconciliationError, match="receiver-reconciled"):
         seed_runtime_configuration("opti_track")
-    with pytest.raises(ReconciliationError, match="non-bootable"):
+    with pytest.raises(ReconciliationError, match="receiver-reconciled"):
         seed_runtime_configuration("hil")
 
+
+def test_hil_uses_receiver_reconciled_sim_parameters_without_runtime_writes(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
     config = tmp_path / "iii_drone"
-    assert not config.exists()
+    selector = config / "profiles" / "hil.yaml"
+    parameter_file = config / "parameter_sets" / "hil" / "tracked" / "default.yaml"
+    state = config / "state" / "hil" / "contract.json"
+    selector.parent.mkdir(parents=True)
+    parameter_file.parent.mkdir(parents=True)
+    state.parent.mkdir(parents=True)
+    selector.write_text(
+        "version: 1\nactive_parameter_set: tracked/default.yaml\n",
+        encoding="utf-8",
+    )
+    parameter_file.write_text("/**:\n  ros__parameters: {}\n", encoding="utf-8")
+    state.write_text("{}\n", encoding="utf-8")
+
+    before = {
+        path.relative_to(config): path.read_bytes()
+        for path in config.rglob("*")
+        if path.is_file()
+    }
+    assert seed_runtime_configuration("hil") == {}
+    assert seed_runtime_configuration("hil") == {}
+    after = {
+        path.relative_to(config): path.read_bytes()
+        for path in config.rglob("*")
+        if path.is_file()
+    }
+
+    assert after == before
+    assert resolve_active_parameter_file("hil") == parameter_file
+    assert not (tmp_path / "operations").exists()
 
 
 def test_opti_track_alias_uses_receiver_reconciled_real_state_without_mutation(

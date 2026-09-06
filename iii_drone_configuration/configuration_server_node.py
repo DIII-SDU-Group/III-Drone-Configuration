@@ -22,7 +22,7 @@ import yaml
 import rclpy
 from rclpy.lifecycle import Node, State, TransitionCallbackReturn
 from rclpy.service import Service
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 
 from std_msgs.msg import String
 
@@ -58,11 +58,11 @@ from iii_drone_configuration.schema_utils import (
     build_parameter_file_data,
     normalize_parameter_set_reference,
     persist_active_parameter_set_reference,
-    profile_name_from_environment,
     resolve_active_parameter_file,
     resolve_default_parameter_file_name,
     resolve_parameter_set_path,
     resolve_schema_file,
+    runtime_profile_name_from_environment,
     seed_runtime_configuration,
     save_parameter_file,
 )
@@ -108,8 +108,20 @@ class ConfigurationServer(Node):
     ):
         super().__init__(node_name=node_name, namespace=namespace)
 
-        self.cb_group = ReentrantCallbackGroup()
-        self._profile_name = profile_name_from_environment()
+        # Serialize public services and reconciliation. Several callbacks perform
+        # synchronous calls to managed-node parameter services while holding the
+        # configuration state lock. If public callbacks are reentrant, concurrent
+        # status polling can occupy every executor thread waiting for that lock,
+        # starving the response needed by the transaction that owns it.
+        self.cb_group = MutuallyExclusiveCallbackGroup()
+        # A whole-graph scan may spend seconds waiting for managed-node
+        # parameter services. Keep that work out of the public service group so
+        # status and configuration reads remain responsive during reconciliation.
+        # `_reconcile_lock` still prevents timer and discovery-triggered scans
+        # from overlapping.
+        self.reconcile_cb_group = MutuallyExclusiveCallbackGroup()
+        self.client_cb_group = ReentrantCallbackGroup()
+        self._profile_name = runtime_profile_name_from_environment()
 
         self.schema_file_path = resolve_schema_file()
         self.get_logger().info(
@@ -426,12 +438,12 @@ class ConfigurationServer(Node):
             "/configuration/configuration_server/managed_node_available",
             self.managed_node_notification_callback,
             10,
-            callback_group=self.cb_group,
+            callback_group=self.reconcile_cb_group,
         )
         with self._state_lock:
             self.pending_node_notifications.update(self._get_node_fq_names())
         self.reconcile_timer = self.create_timer(
-            2.0, self.reconcile_nodes, callback_group=self.cb_group
+            2.0, self.reconcile_nodes, callback_group=self.reconcile_cb_group
         )
         return TransitionCallbackReturn.SUCCESS
 
@@ -541,7 +553,7 @@ class ConfigurationServer(Node):
         client = self.create_client(
             ListParameters,
             self._service_path(node_fq_name, "list_parameters"),
-            callback_group=self.cb_group,
+            callback_group=self.client_cb_group,
         )
         if not client.wait_for_service(timeout_sec=0.2):
             self.destroy_client(client)
@@ -567,7 +579,7 @@ class ConfigurationServer(Node):
         client = self.create_client(
             GetParameters,
             self._service_path(node_fq_name, "get_parameters"),
-            callback_group=self.cb_group,
+            callback_group=self.client_cb_group,
         )
         if not client.wait_for_service(timeout_sec=0.2):
             self.destroy_client(client)
@@ -597,7 +609,7 @@ class ConfigurationServer(Node):
         client = self.create_client(
             SetParameters,
             self._service_path(node_fq_name, "set_parameters"),
-            callback_group=self.cb_group,
+            callback_group=self.client_cb_group,
         )
         if not client.wait_for_service(timeout_sec=0.5):
             self.destroy_client(client)
@@ -888,9 +900,6 @@ class ConfigurationServer(Node):
         with self._state_lock:
             if self.parameter_handler is None or self.native_core is None:
                 return False, "Configuration server is not configured"
-
-            if self.server_values.get(parameter_name) == value:
-                return True, ""
 
             try:
                 candidate_values = dict(self.server_values)
@@ -1805,7 +1814,15 @@ class ConfigurationServer(Node):
                         if restart_required != "none"
                         else active_values.get(name)
                     )
-                    if current != value:
+                    live_node_drift = (
+                        restart_required == "none"
+                        and any(
+                            record.values.get(name) != value
+                            for node_fq_name, record in self.node_registry.items()
+                            if node_fq_name in self._group_nodes_for_parameter(name)
+                        )
+                    )
+                    if current != value or live_node_drift:
                         edits.append(
                             {
                                 "node_id": "configuration",

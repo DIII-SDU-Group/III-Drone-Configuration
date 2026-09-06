@@ -86,7 +86,7 @@ Runtime profiles and parameter profiles are deliberately distinct:
 - `real -> real`, bootable, selector scope `real`
 - `sim -> sim`, bootable, selector scope `sim`
 - `opti_track -> real`, bootable, selector scope `opti_track`
-- `hil -> sim`, reserved/non-bootable, selector scope `hil`
+- `hil -> sim`, bootable split-host bench profile, selector scope `hil`
 
 Alias selectors therefore remain independent even when their initial immutable
 default bytes come from the same parameter profile.

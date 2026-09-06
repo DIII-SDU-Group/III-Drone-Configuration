@@ -63,10 +63,23 @@ def test_installed_contract_authenticates_profiles_defaults_and_artifacts() -> N
     assert contract.profile("opti_track").selector_scope == "opti_track"
     assert contract.profile("hil").parameter_profile == "sim"
     assert contract.profile("hil").selector_scope == "hil"
-    assert contract.profile("hil").bootable is False
+    assert contract.profile("hil").bootable is True
     assert contract.default_set("real").set_id == "default"
     assert contract.default_set("sim").set_id == "default"
     assert len(result.verified_artifacts) == 6
+
+
+def test_previous_reserved_hil_contract_remains_readable_for_reconciliation(tmp_path: Path) -> None:
+    root = _copy_contract(tmp_path, "legacy-hil")
+    profiles_path = root / "profiles.json"
+    profiles = json.loads(profiles_path.read_text(encoding="utf-8"))
+    next(row for row in profiles["profiles"] if row["runtime_profile"] == "hil")["bootable"] = False
+    _write_json(profiles_path, profiles)
+    _replace_artifact_hash(root, "profiles.json")
+
+    contract = load_installed_contract(root).contract
+
+    assert contract.profile("hil").bootable is False
 
 
 def test_compatibility_planning_is_typed_deterministic_and_side_effect_free(

@@ -5,6 +5,7 @@ import json
 import pytest
 import yaml
 
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.lifecycle import TransitionCallbackReturn
 
 from iii_drone_configuration.configuration_server_node import (
@@ -68,6 +69,60 @@ def test_server_configure_loads_schema_defaults(configured_server):
     assert server.server_values["/control/gains/p"] == pytest.approx(1.5)
     assert server.parameter_handler.get_param_value("/control/mode") == "auto"
     assert server.current_parameter_file == "tracked/default.yaml"
+
+
+def test_server_separates_public_callbacks_from_nested_parameter_clients(
+    configured_server,
+):
+    server, _ = configured_server
+
+    assert isinstance(server.cb_group, MutuallyExclusiveCallbackGroup)
+    assert isinstance(server.reconcile_cb_group, MutuallyExclusiveCallbackGroup)
+    assert isinstance(server.client_cb_group, ReentrantCallbackGroup)
+    assert server.cb_group is not server.client_cb_group
+    assert server.cb_group is not server.reconcile_cb_group
+    assert server.client_cb_group is not server.reconcile_cb_group
+
+
+def test_server_uses_explicit_hil_runtime_identity(monkeypatch, tmp_path):
+    monkeypatch.setenv("III_DRONE_SCHEMA_FILE", str(TEST_SCHEMA_FILE))
+    monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("III_OPERATIONS_ROOT", str(tmp_path / ".iii/operations"))
+    monkeypatch.setenv("III_TUNING_STATE_ROOT", str(tmp_path / ".iii/tuning"))
+    monkeypatch.setenv("SIMULATION", "true")
+    monkeypatch.setenv("III_SYSTEM_PROFILE", "hil")
+    config = tmp_path / "iii_drone"
+    selector = config / "profiles" / "hil.yaml"
+    parameter_file = config / "parameter_sets" / "hil" / "tracked" / "default.yaml"
+    state = config / "state" / "hil" / "contract.json"
+    selector.parent.mkdir(parents=True)
+    parameter_file.parent.mkdir(parents=True)
+    state.parent.mkdir(parents=True)
+    selector.write_text(
+        "version: 1\nactive_parameter_set: tracked/default.yaml\n",
+        encoding="utf-8",
+    )
+    parameter_file.write_text(
+        "/**:\n  ros__parameters:\n    /control/mode: auto\n",
+        encoding="utf-8",
+    )
+    state.write_text("{}\n", encoding="utf-8")
+
+    server = ConfigurationServer(
+        node_name="configuration_server_hil_test",
+        namespace="/configuration/configuration_server_hil_test",
+    )
+    try:
+        assert server._profile_name == "hil"
+        assert server.trigger_configure() == TransitionCallbackReturn.SUCCESS
+        assert server.current_parameter_file == "tracked/default.yaml"
+        assert not (tmp_path / ".iii/operations").exists()
+    finally:
+        try:
+            server.trigger_cleanup()
+        except Exception:
+            pass
+        server.destroy_node()
 
 
 def test_server_reconcile_discovers_nodes_and_syncs_authoritative_values(

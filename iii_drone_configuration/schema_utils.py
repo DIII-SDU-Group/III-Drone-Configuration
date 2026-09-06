@@ -35,6 +35,18 @@ def profile_name_from_environment() -> str:
     return "sim" if is_simulation() else "real"
 
 
+def runtime_profile_name_from_environment() -> str:
+    """Return the selected runtime profile, preserving legacy local defaults.
+
+    HIL intentionally enables simulation-specific node behavior while executing
+    on the aircraft.  ``SIMULATION`` therefore describes behavior, not the
+    runtime/configuration identity.  The release launcher supplies the latter
+    explicitly through ``III_SYSTEM_PROFILE``.
+    """
+    selected = os.environ.get("III_SYSTEM_PROFILE", "").strip()
+    return selected or profile_name_from_environment()
+
+
 def resolve_config_base_dir() -> Path:
     return Path(os.path.expanduser(os.environ.get("CONFIG_BASE_DIR", "~/.config")))
 
@@ -296,7 +308,14 @@ def seed_runtime_configuration(
         )
     selector_scope = profile.selector_scope
     iii_config_dir = resolve_iii_config_dir()
-    if profile.parameter_profile == "sim":
+    # Only the workstation-only ``sim`` runtime owns startup reconciliation.
+    # ``hil`` deliberately consumes the sim parameter schema, but it runs on an
+    # aircraft target and its distinct ``hil`` selector is materialized by the
+    # deployment receiver.  Treating every sim-parameter profile as a local
+    # simulation caused each HIL launch entity to reconcile the same writable
+    # checkpoint again, racing the receiver-owned transaction and eventually
+    # rejecting activation as cross-bound.
+    if profile_name == "sim":
         result = reconcile_simulation_startup(
             immutable_root=immutable_root,
             writable_state_root=iii_config_dir,

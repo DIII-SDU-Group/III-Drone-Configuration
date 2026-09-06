@@ -23,11 +23,17 @@ PROFILE_SCHEMA = "iii.configuration-runtime-profiles/v1"
 MIGRATION_SCHEMA = "iii.configuration-migrations/v1"
 HASH_LENGTH = 64
 EXPECTED_PROFILE_MAP = {
-    "hil": ("sim", "hil", False),
+    "hil": ("sim", "hil", True),
     "opti_track": ("real", "opti_track", True),
     "real": ("real", "real", True),
     "sim": ("sim", "sim", True),
 }
+LEGACY_PROFILE_MAPS = (
+    {
+        **EXPECTED_PROFILE_MAP,
+        "hil": ("sim", "hil", False),
+    },
+)
 SET_ID = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 
@@ -432,7 +438,10 @@ def _profiles(document: Mapping[str, Any]) -> tuple[RuntimeProfileDescriptor, ..
         )
         for item in profiles
     }
-    if observed != EXPECTED_PROFILE_MAP or len(profiles) != len(observed):
+    if (
+        observed != EXPECTED_PROFILE_MAP
+        and observed not in LEGACY_PROFILE_MAPS
+    ) or len(profiles) != len(observed):
         raise ConfigurationContractError(
             "runtime profile aliases/selectors do not match the canonical mapping"
         )
