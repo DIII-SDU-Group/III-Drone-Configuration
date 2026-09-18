@@ -1148,7 +1148,11 @@ def plan_reconciliation(
 
 
 def _operation_dir(plan: ReconciliationPlan) -> Path:
-    path = plan.operations_root / plan.operation_id
+    # A startup label is deliberately stable enough to be useful to an
+    # operator, but it is not the immutable identity of the reconciliation
+    # plan. Keep plan-bound journals and reviews in a plan-bound directory so
+    # a later plan cannot be mistaken for an interrupted earlier one.
+    path = plan.operations_root / f"{plan.operation_id}-{plan.plan_id[:16]}"
     if path.parent != plan.operations_root:
         raise ReconciliationError("operation directory escapes its fixed root")
     return path
@@ -1587,9 +1591,7 @@ def reconcile_simulation_startup(
         target_id=target_id,
         release_id=release_id,
     )
-    decisions_path = (
-        plan.operations_root / plan.operation_id / "reconciliation-decisions.json"
-    )
+    decisions_path = _operation_dir(plan) / "reconciliation-decisions.json"
     result = execute_reconciliation(
         plan,
         decisions_path=decisions_path if decisions_path.is_file() else None,

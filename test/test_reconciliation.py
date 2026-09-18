@@ -258,7 +258,9 @@ def test_preserves_adds_retires_all_sets_and_requires_bound_review(tmp_path: Pat
     assert validate_reintroduction_decisions(review_plan, direct_decisions) == dict(
         sorted(direct_decisions.items())
     )
-    assert not (operations / review_plan.operation_id).exists()
+    assert not (
+        operations / f"{review_plan.operation_id}-{review_plan.plan_id[:16]}"
+    ).exists()
     blocked = execute_reconciliation(review_plan)
     assert blocked.status == "review-required"
     assert (
