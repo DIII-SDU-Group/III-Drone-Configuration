@@ -15,19 +15,15 @@ Planning authenticates the complete living tree, every retained legacy shadow,
 and both contracts, but creates no files. Execution is journaled and writes shadow
 records before removing retired values from active sets.
 
-Simulation startup executes the shared engine against the clone-local
-`$CONFIG_BASE_DIR/iii_drone` tree before selecting a set. Aircraft runtime and
-build/install never reconcile living state. The root receiver copies the currently
-selected immutable checkpoint into a private stage, executes the same plan there,
-seals a new content-addressed checkpoint, and switches code/configuration/catalog
-only as one activation transaction. Explicit rollback restores its already paired
-checkpoint; compatible schema rollback can deterministically rehydrate the latest
-canonical active-at-retirement shadow value.
+Developer startup executes the shared engine against the writable
+`$CONFIG_BASE_DIR/iii_drone` tree before selecting a set. Each bootable profile
+has an independent selector scope, so HIL, real-aircraft, and OptiTrack work can
+be iterated directly without a receiver, staged release, or activation process.
+Compatible local parameter values are preserved across ordinary workspace
+updates.
 
-Reintroduced keys block before mutation. A review binds every old value/default,
-validation result, release, manifest, target, state, set, and operation. Planning
-validates complete `use_old|use_new_default` decisions without writing; accepted
-receiver execution seals the review and decisions before applying them.
+Reintroduced keys are reconciled deterministically from the selected installed
+default and the local writable tree before startup.
 
 ## Purpose
 

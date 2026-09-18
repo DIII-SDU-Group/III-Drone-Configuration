@@ -91,12 +91,12 @@ Runtime profiles and parameter profiles are deliberately distinct:
 Alias selectors therefore remain independent even when their initial immutable
 default bytes come from the same parameter profile.
 
-At runtime these are reconciled into `$CONFIG_BASE_DIR/iii_drone`. Development
-profiles set `CONFIG_BASE_DIR` to the current clone's Git-ignored `.config/` root;
-the aircraft uses receiver-owned persistent checkpoints under `/var/lib/iii`.
-Simulation reconciles automatically before startup. Aircraft build/install/runtime
-startup never mutates this state; only receiver activation creates a staged and
-content-addressed successor checkpoint.
+At runtime every bootable developer profile is reconciled into
+`$CONFIG_BASE_DIR/iii_drone`. The Pi uses its normal writable
+`/home/iii/.config/iii_drone` tree and a development workspace uses the clone's
+Git-ignored `.config/` root. `sim`, `hil`, `real`, and `opti_track` reconcile
+their own selector scopes automatically at startup; updates preserve compatible
+local parameter sets without a receiver or release activation.
 
 The selector file is the authority for which parameter set is active:
 

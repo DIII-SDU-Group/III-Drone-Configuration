@@ -42,7 +42,7 @@ HASH = re.compile(r"^[0-9a-f]{64}$")
 OPERATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 PARAMETER_NAME = re.compile(r"^/[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*$")
 BOUND_REFERENCE = re.compile(r"/[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*")
-ALLOWED_MODES = {"simulation", "receiver-staged"}
+ALLOWED_MODES = {"developer", "simulation", "receiver-staged"}
 
 
 class ReconciliationError(RuntimeError):
@@ -1527,10 +1527,11 @@ def plan_simulation_reconciliation(
     target_id: str = "sim",
     release_id: str,
 ) -> ReconciliationPlan:
-    """Plan the same reconciliation that simulation startup will execute."""
+    """Plan the reconciliation that a local developer startup will execute."""
 
     current = load_installed_contract(immutable_root).contract
     descriptor = current.profile(runtime_profile)
+    mode = "simulation" if descriptor.parameter_profile == "sim" else "developer"
     binding = _state_binding(writable_state_root, descriptor.selector_scope)
     if binding is None:
         old_root = immutable_root
@@ -1546,11 +1547,11 @@ def plan_simulation_reconciliation(
         )
         if not old_root.is_dir():
             raise ReconciliationError(
-                "previous installed configuration contract is unavailable; simulation startup is blocked"
+                "previous installed configuration contract is unavailable; developer startup is blocked"
             )
     initial = _tree_state_id(writable_state_root, descriptor.selector_scope)
     operation_id = (
-        f"sim-startup-{old_manifest_id[:10]}-{current.manifest_id[:10]}-{initial[:10]}"
+        f"{mode}-startup-{old_manifest_id[:10]}-{current.manifest_id[:10]}-{initial[:10]}"
     )
     return plan_reconciliation(
         old_immutable_root=old_root,
@@ -1562,7 +1563,7 @@ def plan_simulation_reconciliation(
         target_id=target_id,
         old_release_id=old_release_id,
         new_release_id=release_id,
-        mode="simulation",
+        mode=mode,
         purpose="startup",
     )
 
@@ -1576,7 +1577,7 @@ def reconcile_simulation_startup(
     target_id: str = "sim",
     release_id: str,
 ) -> ReconciliationResult:
-    """Reconcile all sim sets before any runtime path is selected."""
+    """Reconcile the selected local developer profile before runtime startup."""
 
     plan = plan_simulation_reconciliation(
         immutable_root=immutable_root,
@@ -1595,7 +1596,7 @@ def reconcile_simulation_startup(
     )
     if result.status != "complete":
         raise ReconciliationError(
-            f"simulation configuration is blocked by {result.status}: {result.review_path}"
+            f"developer configuration is blocked by {result.status}: {result.review_path}"
         )
     return result
 

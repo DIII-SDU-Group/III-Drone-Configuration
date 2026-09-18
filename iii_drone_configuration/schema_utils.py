@@ -290,10 +290,11 @@ def seed_runtime_configuration(
 ) -> dict[str, Path]:
     """Compatibility wrapper for the canonical reconciliation/verification gate.
 
-    Simulation is reconciled transactionally. Aircraft profiles are read-only at
-    runtime and must already have been staged and reconciled by the receiver.
-    ``overwrite`` is rejected because runtime callers may never reset living state
-    implicitly.
+    Every bootable developer profile is reconciled transactionally from its
+    installed default into its own writable selector scope.  There is no
+    receiver, immutable-release staging step, or separate provisioning action
+    in the editable developer workflow. ``overwrite`` remains rejected so a
+    runtime caller never resets an existing local configuration implicitly.
     """
     if overwrite:
         raise ReconciliationError(
@@ -308,55 +309,26 @@ def seed_runtime_configuration(
         )
     selector_scope = profile.selector_scope
     iii_config_dir = resolve_iii_config_dir()
-    # Developer HIL deliberately uses the simulation parameter family.  This
-    # editable-workspace workflow has no receiver or immutable-release stage,
-    # so reconcile that family locally before either sim or HIL startup.
-    if profile.parameter_profile == "sim":
-        result = reconcile_simulation_startup(
-            immutable_root=immutable_root,
-            writable_state_root=iii_config_dir,
-            operations_root=resolve_configuration_operations_root(),
-            runtime_profile=profile_name,
-            target_id=os.environ.get("III_LOGICAL_TARGET", "sim"),
-            release_id=(
-                os.environ.get("III_ACTIVE_RELEASE_ID")
-                or os.environ.get("III_WORKSPACE_RELEASE_ID")
-                or contract.manifest_id
-            ),
-        )
-        return {
-            relative: iii_config_dir / PurePosixPath(relative)
-            for relative in result.changed_paths
-        }
-
-    selector_file = resolve_profile_selector_file(selector_scope)
-    active_file = _resolve_active_parameter_file_for_scope(selector_scope)
-    state_file = iii_config_dir / "state" / selector_scope / "contract.json"
-    # The initial OptiTrack profile is an explicit, read-only alias of the real
-    # parameter profile.  Older commissioned checkpoints legitimately predate a
-    # dedicated OptiTrack selector.  In that case, verify and consume the
-    # receiver-owned real selector without creating or copying mutable state at
-    # runtime.  Once an OptiTrack selector exists it remains independently
-    # scoped and is preferred above this compatibility fallback.
-    if (
-        selector_scope != profile.parameter_profile
-        and not all(path.is_file() for path in (selector_file, active_file, state_file))
-    ):
-        selector_scope = profile.parameter_profile
-        selector_file = resolve_profile_selector_file(selector_scope)
-        active_file = _resolve_active_parameter_file_for_scope(selector_scope)
-        state_file = iii_config_dir / "state" / selector_scope / "contract.json"
-    missing = [
-        str(path)
-        for path in (selector_file, active_file, state_file)
-        if not path.is_file()
-    ]
-    if missing:
-        raise ReconciliationError(
-            "aircraft configuration is not receiver-reconciled; runtime mutation is forbidden; missing: "
-            + ", ".join(missing)
-        )
-    return {}
+    # HIL deliberately uses the simulation parameter family, while real and
+    # OptiTrack use the real family. Each profile retains its own selector
+    # scope, so bench changes never bleed between HIL, real-aircraft, and
+    # OptiTrack experiments.
+    result = reconcile_simulation_startup(
+        immutable_root=immutable_root,
+        writable_state_root=iii_config_dir,
+        operations_root=resolve_configuration_operations_root(),
+        runtime_profile=profile_name,
+        target_id=os.environ.get("III_LOGICAL_TARGET", profile_name),
+        release_id=(
+            os.environ.get("III_ACTIVE_RELEASE_ID")
+            or os.environ.get("III_WORKSPACE_RELEASE_ID")
+            or contract.manifest_id
+        ),
+    )
+    return {
+        relative: iii_config_dir / PurePosixPath(relative)
+        for relative in result.changed_paths
+    }
 
 
 def resolve_configuration_operations_root() -> Path:

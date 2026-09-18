@@ -29,10 +29,9 @@ active_parameter_set: tracked/default.yaml
 ```
 
 Every parameter-set file is a standalone ROS parameter file with canonical full names under `/**: ros__parameters:`.
-Simulation snapshots live alongside tracked files in the current clone at
-`$CONFIG_BASE_DIR/iii_drone/parameter_sets/<profile>/snapshots/`. Aircraft sets
-live only in receiver-owned persistent checkpoints beneath
-`/var/lib/iii/configuration`.
+Snapshots live alongside tracked files in the writable runtime tree at
+`$CONFIG_BASE_DIR/iii_drone/parameter_sets/<profile>/snapshots/`, including on
+the Pi under `/home/iii/.config/iii_drone`.
 
 ### Installed Contract And Writable Reconciliation
 
@@ -145,10 +144,6 @@ Active parameter-set resolution order:
   selector scope. `hil` shares the `sim` baseline and reconciles an independent
   writable selector for split-host bench operation.
 
-Tracked defaults are source-owned release inputs. They may be changed only by the
-separate `iii config promotion plan/apply` workflow from a verified capture on a
-normal feature branch. Promotion requires exact field baseline and manifest
-correlation, explicit per-key shared-default classification, and updates only the
-selected profile default plus its two package-manifest hashes and manifest ID.
-Capture, living-state reconciliation, and runtime snapshot operations never write
-these source files.
+Tracked defaults are source-owned developer inputs. Normal live tuning remains
+in the writable profile tree; copy a value back to the source default only when
+you deliberately want it to become the next developer baseline.

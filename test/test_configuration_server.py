@@ -94,10 +94,8 @@ def test_server_uses_explicit_hil_runtime_identity(monkeypatch, tmp_path):
     config = tmp_path / "iii_drone"
     selector = config / "profiles" / "hil.yaml"
     parameter_file = config / "parameter_sets" / "hil" / "tracked" / "default.yaml"
-    state = config / "state" / "hil" / "contract.json"
     selector.parent.mkdir(parents=True)
     parameter_file.parent.mkdir(parents=True)
-    state.parent.mkdir(parents=True)
     selector.write_text(
         "version: 1\nactive_parameter_set: tracked/default.yaml\n",
         encoding="utf-8",
@@ -106,7 +104,6 @@ def test_server_uses_explicit_hil_runtime_identity(monkeypatch, tmp_path):
         "/**:\n  ros__parameters:\n    /control/mode: auto\n",
         encoding="utf-8",
     )
-    state.write_text("{}\n", encoding="utf-8")
 
     server = ConfigurationServer(
         node_name="configuration_server_hil_test",
@@ -116,7 +113,7 @@ def test_server_uses_explicit_hil_runtime_identity(monkeypatch, tmp_path):
         assert server._profile_name == "hil"
         assert server.trigger_configure() == TransitionCallbackReturn.SUCCESS
         assert server.current_parameter_file == "tracked/default.yaml"
-        assert not (tmp_path / ".iii/operations").exists()
+        assert (tmp_path / ".iii/operations").is_dir()
     finally:
         try:
             server.trigger_cleanup()

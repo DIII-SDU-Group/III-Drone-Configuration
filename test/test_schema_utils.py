@@ -99,22 +99,27 @@ def test_seed_runtime_configuration_never_copies_schema_or_overwrites_parameter_
     assert not (tmp_path / "iii_drone" / "parameters").exists()
 
 
-def test_developer_hil_seeds_its_simulation_parameter_family(monkeypatch, tmp_path):
+def test_developer_profiles_seed_independent_parameter_families(monkeypatch, tmp_path):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
 
-    with pytest.raises(ReconciliationError, match="receiver-reconciled"):
-        seed_runtime_configuration("real")
-    with pytest.raises(ReconciliationError, match="receiver-reconciled"):
-        seed_runtime_configuration("opti_track")
-    seeded = seed_runtime_configuration("hil")
-    assert seeded
     config = tmp_path / "iii_drone"
-    assert (config / "profiles" / "hil.yaml").is_file()
-    assert (config / "parameter_sets" / "hil" / "tracked" / "default.yaml").is_file()
-    state = json.loads((config / "state" / "hil" / "contract.json").read_text())
-    assert state["runtime_profile"] == "hil"
-    assert state["parameter_profile"] == "sim"
+    for profile_name, parameter_profile in (
+        ("hil", "sim"),
+        ("real", "real"),
+        ("opti_track", "real"),
+    ):
+        seeded = seed_runtime_configuration(profile_name)
+        assert seeded
+        assert (config / "profiles" / f"{profile_name}.yaml").is_file()
+        assert (
+            config / "parameter_sets" / profile_name / "tracked" / "default.yaml"
+        ).is_file()
+        state = json.loads(
+            (config / "state" / profile_name / "contract.json").read_text()
+        )
+        assert state["runtime_profile"] == profile_name
+        assert state["parameter_profile"] == parameter_profile
 
 
 def test_hil_uses_reconciled_sim_parameters_without_rewriting_them(
@@ -148,29 +153,21 @@ def test_hil_uses_reconciled_sim_parameters_without_rewriting_them(
     assert (tmp_path / "operations").is_dir()
 
 
-def test_opti_track_alias_uses_receiver_reconciled_real_state_without_mutation(
+def test_opti_track_seeds_an_independent_developer_selector(
     monkeypatch, tmp_path
 ):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
     config = tmp_path / "iii_drone"
-    selector = config / "profiles" / "real.yaml"
-    parameter_file = config / "parameter_sets" / "real" / "tracked" / "default.yaml"
-    state = config / "state" / "real" / "contract.json"
-    selector.parent.mkdir(parents=True)
-    parameter_file.parent.mkdir(parents=True)
-    state.parent.mkdir(parents=True)
-    selector.write_text(
-        "version: 1\nactive_parameter_set: tracked/default.yaml\n",
-        encoding="utf-8",
-    )
-    parameter_file.write_text("/**:\n  ros__parameters: {}\n", encoding="utf-8")
-    state.write_text("{}\n", encoding="utf-8")
+    seeded = seed_runtime_configuration("opti_track")
 
-    assert seed_runtime_configuration("opti_track") == {}
+    parameter_file = (
+        config / "parameter_sets" / "opti_track" / "tracked" / "default.yaml"
+    )
+    assert seeded
     assert resolve_active_parameter_file("opti_track") == parameter_file
-    assert not (config / "profiles" / "opti_track.yaml").exists()
-    assert not (config / "parameter_sets" / "opti_track").exists()
+    assert (config / "profiles" / "opti_track.yaml").is_file()
+    assert (config / "state" / "opti_track" / "contract.json").is_file()
 
 
 def test_active_parameter_file_prefers_default_snapshot(monkeypatch, tmp_path):
