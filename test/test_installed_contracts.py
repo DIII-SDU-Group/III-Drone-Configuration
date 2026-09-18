@@ -61,6 +61,7 @@ def test_installed_contract_authenticates_profiles_defaults_and_artifacts() -> N
     assert contract.profile("sim").parameter_profile == "sim"
     assert contract.profile("opti_track").parameter_profile == "real"
     assert contract.profile("opti_track").selector_scope == "opti_track"
+    assert contract.profile("opti_track").bootable is False
     assert contract.profile("hil").parameter_profile == "sim"
     assert contract.profile("hil").selector_scope == "hil"
     assert contract.profile("hil").bootable is True

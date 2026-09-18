@@ -24,7 +24,7 @@ MIGRATION_SCHEMA = "iii.configuration-migrations/v1"
 HASH_LENGTH = 64
 EXPECTED_PROFILE_MAP = {
     "hil": ("sim", "hil", True),
-    "opti_track": ("real", "opti_track", True),
+    "opti_track": ("real", "opti_track", False),
     "real": ("real", "real", True),
     "sim": ("sim", "sim", True),
 }

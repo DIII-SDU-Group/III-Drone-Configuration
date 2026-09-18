@@ -1,6 +1,6 @@
 {
   "schema": "iii.configuration-package/v1",
-  "manifest_id": "3924c6f6f6765d7f22643c396e02ee31e90b01bdd4fa0d5fb1b9ab6142f65051",
+  "manifest_id": "21e44c1e66a4866b4479260d5f77efbd88a6d0e0607f190434562665b037a79b",
   "package_version": "2.2.0",
   "configuration_schema_version": 1,
   "compatibility": {
@@ -19,7 +19,7 @@
     },
     {
       "path": "profiles.json",
-      "sha256": "23801644c7632304fa5dedea08aa8f821dbdac4e6b6ba0b577f487f635f7132e"
+      "sha256": "4a32d9341b3b56c4bcc1aa4f21a74b24745b00f7031c72d5a531590155a934a1"
     },
     {
       "path": "schema/parameter_manifest.yaml",

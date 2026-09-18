@@ -104,11 +104,7 @@ def test_developer_profiles_seed_independent_parameter_families(monkeypatch, tmp
     monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
 
     config = tmp_path / "iii_drone"
-    for profile_name, parameter_profile in (
-        ("hil", "sim"),
-        ("real", "real"),
-        ("opti_track", "real"),
-    ):
+    for profile_name, parameter_profile in (("hil", "sim"), ("real", "real")):
         seeded = seed_runtime_configuration(profile_name)
         assert seeded
         assert (config / "profiles" / f"{profile_name}.yaml").is_file()
@@ -153,21 +149,15 @@ def test_hil_uses_reconciled_sim_parameters_without_rewriting_them(
     assert (tmp_path / "operations").is_dir()
 
 
-def test_opti_track_seeds_an_independent_developer_selector(
+def test_opti_track_rejects_boot_until_its_pose_bridge_is_installed(
     monkeypatch, tmp_path
 ):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
     config = tmp_path / "iii_drone"
-    seeded = seed_runtime_configuration("opti_track")
-
-    parameter_file = (
-        config / "parameter_sets" / "opti_track" / "tracked" / "default.yaml"
-    )
-    assert seeded
-    assert resolve_active_parameter_file("opti_track") == parameter_file
-    assert (config / "profiles" / "opti_track.yaml").is_file()
-    assert (config / "state" / "opti_track" / "contract.json").is_file()
+    with pytest.raises(ReconciliationError, match="reserved and non-bootable: opti_track"):
+        seed_runtime_configuration("opti_track")
+    assert not (config / "parameter_sets" / "opti_track").exists()
 
 
 def test_active_parameter_file_prefers_default_snapshot(monkeypatch, tmp_path):

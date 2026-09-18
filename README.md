@@ -85,7 +85,8 @@ Runtime profiles and parameter profiles are deliberately distinct:
 
 - `real -> real`, bootable, selector scope `real`
 - `sim -> sim`, bootable, selector scope `sim`
-- `opti_track -> real`, bootable, selector scope `opti_track`
+- `opti_track -> real`, reserved and non-bootable until its pose bridge is
+  installed and validated, selector scope `opti_track`
 - `hil -> sim`, bootable split-host bench profile, selector scope `hil`
 
 Alias selectors therefore remain independent even when their initial immutable
@@ -94,9 +95,10 @@ default bytes come from the same parameter profile.
 At runtime every bootable developer profile is reconciled into
 `$CONFIG_BASE_DIR/iii_drone`. The Pi uses its normal writable
 `/home/iii/.config/iii_drone` tree and a development workspace uses the clone's
-Git-ignored `.config/` root. `sim`, `hil`, `real`, and `opti_track` reconcile
-their own selector scopes automatically at startup; updates preserve compatible
-local parameter sets without a receiver or release activation.
+Git-ignored `.config/` root. `sim`, `hil`, and `real` reconcile their own
+selector scopes automatically at startup; updates preserve compatible local
+parameter sets without a receiver or release activation. `opti_track` remains
+withheld until its pose bridge is installed and validated.
 
 The selector file is the authority for which parameter set is active:
 
