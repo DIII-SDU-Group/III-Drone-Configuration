@@ -701,6 +701,56 @@ def _tree_state_id(root: Path, scope: str) -> str:
     return _identity({"scope": scope, "files": inventory})
 
 
+def _resulting_tree_state_id(
+    root: Path, scope: str, documents: Mapping[str, bytes]
+) -> str:
+    """Identify a reconciled tree before its documents are written.
+
+    A state binding must describe the tree produced by its own reconciliation,
+    not the tree that existed immediately before it.  Otherwise a first startup
+    records the empty/pre-seed tree and necessarily rewrites its state binding
+    once more on the following startup.
+    """
+
+    prefix = f"parameter_sets/{scope}/"
+    shadow_prefix = f"shadows/{scope}/"
+    selector = f"profiles/{scope}.yaml"
+    planned: dict[str, bytes] = {}
+
+    candidates = [
+        root / "profiles" / f"{scope}.yaml",
+        *_set_paths(root, scope).values(),
+    ]
+    for path in candidates:
+        if path.exists():
+            relative = path.relative_to(root).as_posix()
+            planned[relative] = _regular_bytes(
+                path, label="configuration state input"
+            )
+
+    shadow_root = root / "shadows" / scope
+    if shadow_root.exists():
+        for path in sorted(shadow_root.rglob("*.json")):
+            relative = path.relative_to(root).as_posix()
+            planned[relative] = _regular_bytes(
+                path, label="configuration state input"
+            )
+
+    for relative, data in documents.items():
+        if (
+            relative == selector
+            or relative.startswith(prefix)
+            or relative.startswith(shadow_prefix)
+        ):
+            planned[relative] = data
+
+    inventory = [
+        {"path": relative, "sha256": _sha256(data)}
+        for relative, data in sorted(planned.items())
+    ]
+    return _identity({"scope": scope, "files": inventory})
+
+
 def _state_binding(root: Path, scope: str) -> dict[str, Any] | None:
     path = root / "state" / scope / "contract.json"
     if not path.exists():
@@ -1019,6 +1069,11 @@ def plan_reconciliation(
         selector_document if selector_bytes is None else selector_bytes
     )
     initial_state_id = _tree_state_id(writable, descriptor.selector_scope)
+    resulting_state_id = _resulting_tree_state_id(
+        writable,
+        descriptor.selector_scope,
+        {**shadow_documents, **documents},
+    )
     state = {
         "schema": STATE_SCHEMA,
         "state_id": "0" * 64,
@@ -1029,7 +1084,7 @@ def plan_reconciliation(
         "release_id": new_release_id,
         "manifest_id": new.manifest_id,
         "schema_version": new.schema_version,
-        "source_state_id": initial_state_id,
+        "source_state_id": resulting_state_id,
         "set_results": {item.reference: item.result_sha256 for item in set_plans},
     }
     state["state_id"] = _identity(state, "state_id")

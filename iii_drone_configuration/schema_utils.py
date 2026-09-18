@@ -308,14 +308,10 @@ def seed_runtime_configuration(
         )
     selector_scope = profile.selector_scope
     iii_config_dir = resolve_iii_config_dir()
-    # Only the workstation-only ``sim`` runtime owns startup reconciliation.
-    # ``hil`` deliberately consumes the sim parameter schema, but it runs on an
-    # aircraft target and its distinct ``hil`` selector is materialized by the
-    # deployment receiver.  Treating every sim-parameter profile as a local
-    # simulation caused each HIL launch entity to reconcile the same writable
-    # checkpoint again, racing the receiver-owned transaction and eventually
-    # rejecting activation as cross-bound.
-    if profile_name == "sim":
+    # Developer HIL deliberately uses the simulation parameter family.  This
+    # editable-workspace workflow has no receiver or immutable-release stage,
+    # so reconcile that family locally before either sim or HIL startup.
+    if profile.parameter_profile == "sim":
         result = reconcile_simulation_startup(
             immutable_root=immutable_root,
             writable_state_root=iii_config_dir,

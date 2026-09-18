@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -98,42 +99,42 @@ def test_seed_runtime_configuration_never_copies_schema_or_overwrites_parameter_
     assert not (tmp_path / "iii_drone" / "parameters").exists()
 
 
-def test_aircraft_profiles_never_seed_at_runtime(monkeypatch, tmp_path):
+def test_developer_hil_seeds_its_simulation_parameter_family(monkeypatch, tmp_path):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
 
     with pytest.raises(ReconciliationError, match="receiver-reconciled"):
         seed_runtime_configuration("real")
     with pytest.raises(ReconciliationError, match="receiver-reconciled"):
         seed_runtime_configuration("opti_track")
-    with pytest.raises(ReconciliationError, match="receiver-reconciled"):
-        seed_runtime_configuration("hil")
+    seeded = seed_runtime_configuration("hil")
+    assert seeded
+    config = tmp_path / "iii_drone"
+    assert (config / "profiles" / "hil.yaml").is_file()
+    assert (config / "parameter_sets" / "hil" / "tracked" / "default.yaml").is_file()
+    state = json.loads((config / "state" / "hil" / "contract.json").read_text())
+    assert state["runtime_profile"] == "hil"
+    assert state["parameter_profile"] == "sim"
 
 
-def test_hil_uses_receiver_reconciled_sim_parameters_without_runtime_writes(
+def test_hil_uses_reconciled_sim_parameters_without_rewriting_them(
     monkeypatch, tmp_path
 ):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
     config = tmp_path / "iii_drone"
-    selector = config / "profiles" / "hil.yaml"
-    parameter_file = config / "parameter_sets" / "hil" / "tracked" / "default.yaml"
-    state = config / "state" / "hil" / "contract.json"
-    selector.parent.mkdir(parents=True)
-    parameter_file.parent.mkdir(parents=True)
-    state.parent.mkdir(parents=True)
-    selector.write_text(
-        "version: 1\nactive_parameter_set: tracked/default.yaml\n",
-        encoding="utf-8",
-    )
-    parameter_file.write_text("/**:\n  ros__parameters: {}\n", encoding="utf-8")
-    state.write_text("{}\n", encoding="utf-8")
+    seeded = seed_runtime_configuration("hil")
+    assert seeded
 
     before = {
         path.relative_to(config): path.read_bytes()
         for path in config.rglob("*")
         if path.is_file()
     }
-    assert seed_runtime_configuration("hil") == {}
-    assert seed_runtime_configuration("hil") == {}
+    # Reconciliation reports its verified document set on each startup, but a
+    # stable HIL configuration must remain byte-for-byte unchanged.
+    assert seed_runtime_configuration("hil")
+    assert seed_runtime_configuration("hil")
     after = {
         path.relative_to(config): path.read_bytes()
         for path in config.rglob("*")
@@ -141,8 +142,10 @@ def test_hil_uses_receiver_reconciled_sim_parameters_without_runtime_writes(
     }
 
     assert after == before
-    assert resolve_active_parameter_file("hil") == parameter_file
-    assert not (tmp_path / "operations").exists()
+    assert resolve_active_parameter_file("hil") == (
+        config / "parameter_sets" / "hil" / "tracked" / "default.yaml"
+    )
+    assert (tmp_path / "operations").is_dir()
 
 
 def test_opti_track_alias_uses_receiver_reconciled_real_state_without_mutation(
