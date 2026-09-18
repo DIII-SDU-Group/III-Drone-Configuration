@@ -33,6 +33,10 @@ LEGACY_PROFILE_MAPS = (
         **EXPECTED_PROFILE_MAP,
         "hil": ("sim", "hil", False),
     },
+    {
+        **EXPECTED_PROFILE_MAP,
+        "opti_track": ("real", "opti_track", True),
+    },
 )
 SET_ID = re.compile(r"^[a-z][a-z0-9_-]*$")
 

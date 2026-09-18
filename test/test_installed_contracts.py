@@ -83,6 +83,21 @@ def test_previous_reserved_hil_contract_remains_readable_for_reconciliation(tmp_
     assert contract.profile("hil").bootable is False
 
 
+def test_previous_bootable_optitrack_contract_remains_readable_for_reconciliation(
+    tmp_path: Path,
+) -> None:
+    root = _copy_contract(tmp_path, "legacy-opti-track")
+    profiles_path = root / "profiles.json"
+    profiles = json.loads(profiles_path.read_text(encoding="utf-8"))
+    next(row for row in profiles["profiles"] if row["runtime_profile"] == "opti_track")["bootable"] = True
+    _write_json(profiles_path, profiles)
+    _replace_artifact_hash(root, "profiles.json")
+
+    contract = load_installed_contract(root).contract
+
+    assert contract.profile("opti_track").bootable is True
+
+
 def test_compatibility_planning_is_typed_deterministic_and_side_effect_free(
     tmp_path: Path,
 ) -> None:
