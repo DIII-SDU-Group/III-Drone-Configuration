@@ -898,8 +898,18 @@ def plan_reconciliation(
         binding_release_id = binding.get("release_id")
         release_binding_matches = binding_release_id == old_release_id
         legacy_manifest_sentinel = binding_release_id == old.manifest_id
+        # HIL originally shared the simulation target identity even though it
+        # already had its own runtime profile and selector scope. HIL now has
+        # its own target identity; accept only that exact historical binding so
+        # the next successful reconciliation rewrites it as `hil`.
+        legacy_hil_sim_target = (
+            runtime_profile == "hil"
+            and target_id == "hil"
+            and binding.get("runtime_profile") == "hil"
+            and binding.get("target_id") == "sim"
+        )
         if (
-            binding.get("target_id") != target_id
+            (binding.get("target_id") != target_id and not legacy_hil_sim_target)
             or binding.get("selector_scope") != descriptor.selector_scope
             or binding.get("parameter_profile") != descriptor.parameter_profile
             or binding.get("manifest_id") != old.manifest_id

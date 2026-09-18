@@ -182,6 +182,40 @@ def test_identical_startup_reconciliation_is_content_idempotent(tmp_path: Path):
     assert after == before
 
 
+def test_hil_startup_migrates_legacy_sim_target_identity(tmp_path: Path):
+    contract = _contract(tmp_path, "contract")
+    state = tmp_path / "state"
+    operations = tmp_path / "operations"
+    _initial_state(contract, state, profile="hil")
+
+    binding_path = state / "state/hil/contract.json"
+    binding = json.loads(binding_path.read_text(encoding="utf-8"))
+    binding["target_id"] = "sim"
+    binding["state_id"] = hashlib.sha256(
+        (
+            json.dumps(
+                {key: value for key, value in binding.items() if key != "state_id"},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+    ).hexdigest()
+    binding_path.write_text(json.dumps(binding, sort_keys=True), encoding="utf-8")
+
+    result = reconcile_simulation_startup(
+        immutable_root=contract,
+        writable_state_root=state,
+        operations_root=operations,
+        runtime_profile="hil",
+        target_id="hil",
+        release_id="release-old",
+    )
+
+    assert result.status == "complete"
+    assert json.loads(binding_path.read_text(encoding="utf-8"))["target_id"] == "hil"
+
+
 def _select(root: Path, reference: str) -> None:
     path = root / "profiles/sim.yaml"
     path.write_text(
