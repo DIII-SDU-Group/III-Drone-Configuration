@@ -121,6 +121,8 @@ class ConfigurationServer(Node):
         # from overlapping.
         self.reconcile_cb_group = MutuallyExclusiveCallbackGroup()
         self.client_cb_group = ReentrantCallbackGroup()
+        self._parameter_clients: dict[tuple[str, str], object] = {}
+        self._parameter_clients_lock = threading.Lock()
         self._profile_name = runtime_profile_name_from_environment()
 
         self.schema_file_path = resolve_schema_file()
@@ -492,6 +494,7 @@ class ConfigurationServer(Node):
         ret = super().on_cleanup(state)
         if ret != TransitionCallbackReturn.SUCCESS:
             return ret
+        self._release_parameter_clients()
         self.native_core = None
         self.parameter_handler = None
         with self._state_lock:
@@ -524,6 +527,36 @@ class ConfigurationServer(Node):
     def _service_path(self, node_fq_name: str, service_name: str) -> str:
         return f"{node_fq_name.rstrip('/')}/{service_name}"
 
+    def _parameter_client(self, srv_type, node_fq_name: str, service_name: str):
+        """Return a cached parameter-service client for a managed node.
+
+        The reconcile timer scans the graph every two seconds. Creating and
+        destroying clients on every call produced continuous DDS discovery
+        churn across hosts and made late responses land on destroyed clients.
+        Clients are kept per node and released when the node leaves the graph.
+        """
+        key = (srv_type.__name__, self._service_path(node_fq_name, service_name))
+        with self._parameter_clients_lock:
+            client = self._parameter_clients.get(key)
+            if client is None:
+                client = self.create_client(
+                    srv_type, key[1], callback_group=self.client_cb_group
+                )
+                self._parameter_clients[key] = client
+            return client
+
+    def _release_parameter_clients(self, keep_node_fq_names=None) -> None:
+        """Destroy cached clients, except those of nodes still in the graph."""
+        keep_prefixes = {
+            f"{name.rstrip('/')}/" for name in (keep_node_fq_names or ())
+        }
+        with self._parameter_clients_lock:
+            for key in list(self._parameter_clients):
+                node_prefix = key[1].rsplit("/", 1)[0] + "/"
+                if node_prefix in keep_prefixes:
+                    continue
+                self.destroy_client(self._parameter_clients.pop(key))
+
     @staticmethod
     def _consume_future_result(future) -> None:
         try:
@@ -550,89 +583,65 @@ class ConfigurationServer(Node):
         return None
 
     def _call_list_parameters(self, node_fq_name: str) -> Optional[list[str]]:
-        client = self.create_client(
-            ListParameters,
-            self._service_path(node_fq_name, "list_parameters"),
-            callback_group=self.client_cb_group,
-        )
+        client = self._parameter_client(ListParameters, node_fq_name, "list_parameters")
         if not client.wait_for_service(timeout_sec=0.2):
-            self.destroy_client(client)
             return None
         request = ListParameters.Request()
         request.prefixes = []
         request.depth = 1000
-        try:
-            response = self._call_client(
-                client,
-                request,
-                timeout_sec=self._PARAMETER_SERVICE_TIMEOUT_SEC,
-            )
-            if response is None:
-                return None
-            return list(response.result.names)
-        finally:
-            self.destroy_client(client)
+        response = self._call_client(
+            client,
+            request,
+            timeout_sec=self._PARAMETER_SERVICE_TIMEOUT_SEC,
+        )
+        if response is None:
+            return None
+        return list(response.result.names)
 
     def _call_get_parameters(
         self, node_fq_name: str, parameter_names: list[str]
     ) -> Optional[dict[str, object]]:
-        client = self.create_client(
-            GetParameters,
-            self._service_path(node_fq_name, "get_parameters"),
-            callback_group=self.client_cb_group,
-        )
+        client = self._parameter_client(GetParameters, node_fq_name, "get_parameters")
         if not client.wait_for_service(timeout_sec=0.2):
-            self.destroy_client(client)
             return None
         request = GetParameters.Request()
         request.names = parameter_names
-        try:
-            response = self._call_client(
-                client,
-                request,
-                timeout_sec=self._PARAMETER_SERVICE_TIMEOUT_SEC,
-            )
-            if response is None:
-                return None
-            if len(response.values) != len(parameter_names):
-                return None
-            values = {}
-            for name, value in zip(parameter_names, response.values):
-                values[name] = rclpy.parameter.parameter_value_to_python(value)
-            return values
-        finally:
-            self.destroy_client(client)
+        response = self._call_client(
+            client,
+            request,
+            timeout_sec=self._PARAMETER_SERVICE_TIMEOUT_SEC,
+        )
+        if response is None:
+            return None
+        if len(response.values) != len(parameter_names):
+            return None
+        values = {}
+        for name, value in zip(parameter_names, response.values):
+            values[name] = rclpy.parameter.parameter_value_to_python(value)
+        return values
 
     def _call_set_parameter(
         self, node_fq_name: str, parameter_name: str, value: object
     ) -> tuple[bool, str]:
-        client = self.create_client(
-            SetParameters,
-            self._service_path(node_fq_name, "set_parameters"),
-            callback_group=self.client_cb_group,
-        )
+        client = self._parameter_client(SetParameters, node_fq_name, "set_parameters")
         if not client.wait_for_service(timeout_sec=0.5):
-            self.destroy_client(client)
             return False, f"Service not available for {node_fq_name}"
 
         request = SetParameters.Request()
         parameter = rclpy.parameter.Parameter(name=parameter_name, value=value)
         request.parameters = [parameter.to_parameter_msg()]
 
-        try:
-            response = self._call_client(
-                client,
-                request,
-                timeout_sec=self._PARAMETER_SERVICE_TIMEOUT_SEC,
-            )
-            if response is None:
-                return False, f"Timed out waiting for {node_fq_name}"
-            if not response.results:
-                return False, f"No result returned by {node_fq_name}"
-            result = response.results[0]
-            return bool(result.successful), str(result.reason)
-        finally:
-            self.destroy_client(client)
+        response = self._call_client(
+            client,
+            request,
+            timeout_sec=self._PARAMETER_SERVICE_TIMEOUT_SEC,
+        )
+        if response is None:
+            return False, f"Timed out waiting for {node_fq_name}"
+        if not response.results:
+            return False, f"No result returned by {node_fq_name}"
+        result = response.results[0]
+        return bool(result.successful), str(result.reason)
 
     def reconcile_nodes(self) -> None:
         if not self._reconcile_lock.acquire(blocking=False):
@@ -740,6 +749,8 @@ class ConfigurationServer(Node):
                             del self.node_registry[node_fq_name]
 
                 self.pending_node_notifications.clear()
+            if full_graph_scan:
+                self._release_parameter_clients(discovered_fq_names)
         finally:
             self._reconcile_lock.release()
         if full_graph_scan:

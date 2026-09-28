@@ -255,6 +255,52 @@ def test_server_live_parameter_update_allows_bounded_node_callback_latency(
     assert observed_timeouts == [pytest.approx(2.0)]
 
 
+def test_server_reuses_parameter_clients_and_releases_departed_nodes(
+    configured_server, monkeypatch
+):
+    server, _ = configured_server
+    created = []
+    destroyed = []
+
+    def fake_create_client(srv_type, service_path, callback_group=None):
+        client = SimpleNamespace(
+            service_path=service_path, wait_for_service=lambda timeout_sec: True
+        )
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(server, "create_client", fake_create_client)
+    monkeypatch.setattr(server, "destroy_client", destroyed.append)
+    monkeypatch.setattr(
+        server,
+        "_call_client",
+        lambda client, request, timeout_sec: SimpleNamespace(
+            result=SimpleNamespace(names=["/control/dt"])
+        ),
+    )
+
+    for _ in range(3):
+        assert server._call_list_parameters("/node_a") == ["/control/dt"]
+        assert server._call_list_parameters("/node_b") == ["/control/dt"]
+    # One discovery-visible client per node and service, not per call.
+    assert [client.service_path for client in created] == [
+        "/node_a/list_parameters",
+        "/node_b/list_parameters",
+    ]
+    assert destroyed == []
+
+    server._release_parameter_clients({"/node_a"})
+    assert [client.service_path for client in destroyed] == ["/node_b/list_parameters"]
+    server._call_list_parameters("/node_a")
+    assert len(created) == 2
+
+    server._release_parameter_clients()
+    assert [client.service_path for client in destroyed] == [
+        "/node_b/list_parameters",
+        "/node_a/list_parameters",
+    ]
+
+
 def test_server_serialization_callbacks_reflect_current_state(configured_server):
     server, _ = configured_server
     server.node_registry = {
