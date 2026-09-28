@@ -110,6 +110,7 @@ def _plan(
 
 
 def _initial_state(contract: Path, root: Path, *, profile: str = "sim") -> None:
+    virtual_profile = profile in {"sim", "hil"}
     plan = plan_reconciliation(
         old_immutable_root=contract,
         new_immutable_root=contract,
@@ -117,11 +118,11 @@ def _initial_state(contract: Path, root: Path, *, profile: str = "sim") -> None:
         operations_root=root.parent / "operations",
         operation_id=f"initial-{profile}-0001",
         runtime_profile=profile,
-        target_id="sim" if profile == "sim" else "aircraft-01",
+        target_id=profile if virtual_profile else "aircraft-01",
         old_release_id="release-old",
         new_release_id="release-old",
-        mode="simulation" if profile == "sim" else "receiver-staged",
-        purpose="startup" if profile == "sim" else "activation",
+        mode="simulation" if virtual_profile else "receiver-staged",
+        purpose="startup" if virtual_profile else "activation",
     )
     if profile == "real":
         (root / ".iii-reconciliation-stage.json").parent.mkdir(

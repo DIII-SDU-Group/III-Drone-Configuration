@@ -178,3 +178,74 @@ def test_planned_reference_velocity_does_not_exceed_continuity_guard(fallback_na
         parameters["/control/trajectory_interpolator/interpolation_avg_velocity_m_s"]
         <= parameters["/control/trajectory_interpolator/interpolation_max_velocity_m_s"]
     )
+
+
+def test_sim_cable_clearance_includes_mapping_and_collision_margin():
+    sim_parameters = yaml.safe_load(
+        _production_ros_params_file(
+            "UNUSED_SIM_PROFILE_PATH", "parameter_sets/sim/tracked/default.yaml"
+        ).read_text()
+    )["/**"]["ros__parameters"]
+    real_parameters = yaml.safe_load(
+        _production_ros_params_file(
+            "UNUSED_REAL_PROFILE_PATH", "parameter_sets/real/tracked/default.yaml"
+        ).read_text()
+    )["/**"]["ros__parameters"]
+
+    clearance_key = "/control/trajectory_generator/cable_aware_clearance_m"
+    assert sim_parameters[clearance_key] >= 2.0
+    assert real_parameters[clearance_key] == 1.0
+
+
+def test_sim_inspection_direction_gate_covers_mapper_bias_without_weakening_real():
+    sim_parameters = yaml.safe_load(
+        _production_ros_params_file(
+            "UNUSED_SIM_PROFILE_PATH", "parameter_sets/sim/tracked/default.yaml"
+        ).read_text()
+    )["/**"]["ros__parameters"]
+    real_parameters = yaml.safe_load(
+        _production_ros_params_file(
+            "UNUSED_REAL_PROFILE_PATH", "parameter_sets/real/tracked/default.yaml"
+        ).read_text()
+    )["/**"]["ros__parameters"]
+
+    mismatch_key = "/inspection_demo/max_pylon_powerline_direction_mismatch_rad"
+    assert sim_parameters[mismatch_key] >= 1.2
+    assert real_parameters[mismatch_key] == 0.35
+
+
+def test_sim_mapper_fov_acceptance_matches_simulated_mmwave_sensor():
+    sim_parameters = yaml.safe_load(
+        _production_ros_params_file(
+            "UNUSED_SIM_PROFILE_PATH", "parameter_sets/sim/tracked/default.yaml"
+        ).read_text()
+    )["/**"]["ros__parameters"]
+    real_parameters = yaml.safe_load(
+        _production_ros_params_file(
+            "UNUSED_REAL_PROFILE_PATH", "parameter_sets/real/tracked/default.yaml"
+        ).read_text()
+    )["/**"]["ros__parameters"]
+
+    view_cone_key = "/perception/pl_mapper/view_cone_slope"
+    assert sim_parameters[view_cone_key] == pytest.approx(0.7)
+    assert real_parameters[view_cone_key] == pytest.approx(0.7)
+
+
+@pytest.mark.parametrize(
+    ("fallback_name", "expected_grace_s"),
+    [
+        ("parameter_sets/real/tracked/default.yaml", 0.5),
+        ("parameter_sets/sim/tracked/default.yaml", 5.0),
+    ],
+)
+def test_fly_to_object_target_loss_grace_matches_profile(
+    fallback_name, expected_grace_s
+):
+    parameters = yaml.safe_load(
+        _production_ros_params_file("UNUSED_PROFILE_PATH", fallback_name).read_text()
+    )["/**"]["ros__parameters"]
+
+    grace_s = parameters[
+        "/control/maneuver_controller/fly_to_object_target_loss_grace_s"
+    ]
+    assert grace_s == pytest.approx(expected_grace_s)

@@ -1,12 +1,21 @@
 {
   "schema": "iii.configuration-package/v1",
-  "manifest_id": "21e44c1e66a4866b4479260d5f77efbd88a6d0e0607f190434562665b037a79b",
+  "manifest_id": "01f6847f98b8dbade501bc59c58b571d0663c00c7f068edd661fafb13db8f609",
   "package_version": "2.2.0",
   "configuration_schema_version": 1,
   "compatibility": {
-    "readable": {"minimum": 1, "maximum": 1},
-    "upgrade_from": {"minimum": 1, "maximum": 1},
-    "downgrade_from": {"minimum": 1, "maximum": 1}
+    "readable": {
+      "minimum": 1,
+      "maximum": 1
+    },
+    "upgrade_from": {
+      "minimum": 1,
+      "maximum": 1
+    },
+    "downgrade_from": {
+      "minimum": 1,
+      "maximum": 1
+    }
   },
   "artifacts": [
     {
@@ -23,15 +32,15 @@
     },
     {
       "path": "schema/parameter_manifest.yaml",
-      "sha256": "04d910f13740e57e0a408395e85010dadd34eaec611e6d15e7d2055ca7bea446"
+      "sha256": "afc3018964f5a798f01b00ecb0fd14e6541b53eaed9d2d7db8ac2ec23244c567"
     },
     {
       "path": "tracked_defaults/real/default.yaml",
-      "sha256": "ad499ea8a8833c08f4b31686e44c31b8b8fd4cf06d5ce6d5c3766c5077591556"
+      "sha256": "1c8d81863f1d7d8e16726407667045828b44f3edbbd6683b16b3f29c5bf91259"
     },
     {
       "path": "tracked_defaults/sim/default.yaml",
-      "sha256": "87f53521f5a8bf3760ce69eba92c0266dc28e0fcc046225d95246b8db930146c"
+      "sha256": "a293ca4779cfde90ff9ce59a1b9ef1ffa72d0c50368886623e307f31901a0882"
     }
   ],
   "tracked_sets": [
@@ -40,14 +49,14 @@
       "set_id": "default",
       "default": true,
       "path": "tracked_defaults/real/default.yaml",
-      "sha256": "ad499ea8a8833c08f4b31686e44c31b8b8fd4cf06d5ce6d5c3766c5077591556"
+      "sha256": "1c8d81863f1d7d8e16726407667045828b44f3edbbd6683b16b3f29c5bf91259"
     },
     {
       "profile": "sim",
       "set_id": "default",
       "default": true,
       "path": "tracked_defaults/sim/default.yaml",
-      "sha256": "87f53521f5a8bf3760ce69eba92c0266dc28e0fcc046225d95246b8db930146c"
+      "sha256": "a293ca4779cfde90ff9ce59a1b9ef1ffa72d0c50368886623e307f31901a0882"
     }
   ]
 }

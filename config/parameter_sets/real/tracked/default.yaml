@@ -100,12 +100,15 @@
     /control/maneuver_controller/cable_takeoff_min_target_cable_distance: 0.5
     /control/maneuver_controller/use_gripper_status_condition: true
     /control/maneuver_controller/cable_takeoff_max_target_cable_distance: 2.0
+    /control/maneuver_controller/cable_takeoff_reached_pose_norm_threshold: 0.10
     /control/maneuver_controller/generate_trajectories_asynchronously_with_delay: true
     /control/maneuver_controller/generate_trajectories_poll_period_ms: 5
     /control/maneuver_controller/generate_trajectories_timeout_ms: 1000
     /control/maneuver_controller/fly_to_position_use_mpc: false
     /control/maneuver_controller/fly_to_object_use_mpc: false
     /control/maneuver_controller/fly_to_object_target_low_pass_time_constant_s: 1.0
+    # Real mmWave detections may also drop individual frames near the conductor.
+    /control/maneuver_controller/fly_to_object_target_loss_grace_s: 0.5
     /control/maneuver_controller/cable_landing_use_mpc: true
     /control/maneuver_controller/cable_takeoff_use_mpc: true
     /control/maneuver_controller/cable_landing_target_upwards_velocity: 0.5

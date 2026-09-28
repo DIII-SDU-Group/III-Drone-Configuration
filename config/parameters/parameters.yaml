@@ -464,6 +464,11 @@ control:
       value: 2.0
       min: /control/maneuver_controller/cable_takeoff_min_target_cable_distance
       max: 3.0
+    cable_takeoff_reached_pose_norm_threshold:
+      type: float
+      value: 0.10
+      min: 0.05
+      max: 0.25
     generate_trajectories_asynchronously_with_delay:
       type: bool
       value: false
@@ -490,6 +495,11 @@ control:
       value: 1.0
       min: 0.0
       max: 10.0
+    fly_to_object_target_loss_grace_s:
+      type: float
+      value: 0.5
+      min: 0.0
+      max: 5.0
     cable_landing_use_mpc:
       type: bool
       value: true
