@@ -503,9 +503,6 @@ control:
     cable_landing_use_mpc:
       type: bool
       value: true
-    cable_takeoff_use_mpc:
-      type: bool
-      value: true
     controlled_cancel_max_deceleration_m_s2:
       type: float
       value: 0.5

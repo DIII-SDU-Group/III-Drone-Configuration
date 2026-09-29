@@ -533,9 +533,6 @@ control:
     cable_landing_use_mpc:
       type: bool
       value: true
-    cable_takeoff_use_mpc:
-      type: bool
-      value: true
     cable_landing_target_upwards_velocity:
       type: float
       value: 0.5
