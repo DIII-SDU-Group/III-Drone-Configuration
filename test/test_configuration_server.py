@@ -1335,3 +1335,48 @@ def test_snapshot_deletion_never_removes_active_or_default_sets(configured_serve
             "only named snapshot" in response.message
             or "cannot be deleted" in response.message
         )
+
+
+def test_server_shutdown_waits_for_inflight_reconcile_and_stops_the_walk(
+    configured_server, monkeypatch
+):
+    # A reconcile pass still walking nodes when the process stops used
+    # parameter clients whose handles were already destroyed (InvalidHandle,
+    # exit code 1 on every stack stop).
+    import threading
+    import time
+
+    server, _ = configured_server
+    visited = []
+    in_first_node = threading.Event()
+    release_first_node = threading.Event()
+
+    monkeypatch.setattr(server, "_get_node_fq_names", lambda: ["/node_a", "/node_b"])
+
+    def slow_list_parameters(node_fq_name):
+        visited.append(node_fq_name)
+        if node_fq_name == "/node_a":
+            in_first_node.set()
+            release_first_node.wait(timeout=5.0)
+        return []
+
+    monkeypatch.setattr(server, "_call_list_parameters", slow_list_parameters)
+
+    reconcile = threading.Thread(target=server.reconcile_nodes)
+    reconcile.start()
+    assert in_first_node.wait(timeout=5.0)
+
+    shutdown = threading.Thread(target=server.begin_shutdown)
+    shutdown.start()
+    time.sleep(0.2)
+    assert shutdown.is_alive(), "shutdown must wait for the in-flight pass"
+
+    release_first_node.set()
+    shutdown.join(timeout=5.0)
+    reconcile.join(timeout=5.0)
+    assert not shutdown.is_alive() and not reconcile.is_alive()
+    assert visited == ["/node_a"]
+
+    server.reconcile_nodes()
+    assert visited == ["/node_a"]
+    assert server._call_get_parameters("/node_a", ["/control/mode"]) is None

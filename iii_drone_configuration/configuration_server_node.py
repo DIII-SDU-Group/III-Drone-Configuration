@@ -136,6 +136,9 @@ class ConfigurationServer(Node):
         self.node_registry: dict[str, ManagedNodeRecord] = {}
         self._state_lock = threading.RLock()
         self._reconcile_lock = threading.Lock()
+        # Set once the process is stopping: in-flight reconcile passes and
+        # parameter-service waits end instead of using destroyed handles.
+        self._shutdown_requested = threading.Event()
         self.current_parameter_file: str = ""
         self._default_parameter_file_path: Optional[Path] = None
         self._boot_server_values: dict[str, object] = {}
@@ -527,6 +530,24 @@ class ConfigurationServer(Node):
     def _service_path(self, node_fq_name: str, service_name: str) -> str:
         return f"{node_fq_name.rstrip('/')}/{service_name}"
 
+    def begin_shutdown(self, timeout_sec: float = 10.0) -> None:
+        """Stop reconciling and wait for an in-flight pass before teardown.
+
+        A reconcile pass walks every node with bounded service waits; the
+        node must not be destroyed underneath it.
+        """
+        self._shutdown_requested.set()
+        timer = getattr(self, "reconcile_timer", None)
+        if timer is not None:
+            timer.cancel()
+        if self._reconcile_lock.acquire(timeout=timeout_sec):
+            self._reconcile_lock.release()
+        else:
+            self.get_logger().warning(
+                "Configuration server: reconcile pass still running after "
+                f"{timeout_sec:.1f} s at shutdown"
+            )
+
     def _parameter_client(self, srv_type, node_fq_name: str, service_name: str):
         """Return a cached parameter-service client for a managed node.
 
@@ -572,7 +593,7 @@ class ConfigurationServer(Node):
             pass
         future.add_done_callback(self._consume_future_result)
         deadline = time.monotonic() + timeout_sec
-        while time.monotonic() < deadline:
+        while time.monotonic() < deadline and not self._shutdown_requested.is_set():
             if future.done():
                 try:
                     return future.result()
@@ -584,6 +605,8 @@ class ConfigurationServer(Node):
 
     def _call_list_parameters(self, node_fq_name: str) -> Optional[list[str]]:
         client = self._parameter_client(ListParameters, node_fq_name, "list_parameters")
+        if self._shutdown_requested.is_set():
+            return None
         if not client.wait_for_service(timeout_sec=0.2):
             return None
         request = ListParameters.Request()
@@ -602,6 +625,8 @@ class ConfigurationServer(Node):
         self, node_fq_name: str, parameter_names: list[str]
     ) -> Optional[dict[str, object]]:
         client = self._parameter_client(GetParameters, node_fq_name, "get_parameters")
+        if self._shutdown_requested.is_set():
+            return None
         if not client.wait_for_service(timeout_sec=0.2):
             return None
         request = GetParameters.Request()
@@ -624,6 +649,8 @@ class ConfigurationServer(Node):
         self, node_fq_name: str, parameter_name: str, value: object
     ) -> tuple[bool, str]:
         client = self._parameter_client(SetParameters, node_fq_name, "set_parameters")
+        if self._shutdown_requested.is_set():
+            return (False, "Configuration server is shutting down")
         if not client.wait_for_service(timeout_sec=0.5):
             return False, f"Service not available for {node_fq_name}"
 
@@ -644,6 +671,8 @@ class ConfigurationServer(Node):
         return bool(result.successful), str(result.reason)
 
     def reconcile_nodes(self) -> None:
+        if self._shutdown_requested.is_set():
+            return
         if not self._reconcile_lock.acquire(blocking=False):
             return
 
@@ -665,6 +694,8 @@ class ConfigurationServer(Node):
             discovered_records: dict[str, ManagedNodeRecord] = {}
 
             for node_fq_name in sorted(discovered_fq_names):
+                if self._shutdown_requested.is_set():
+                    return
                 parameter_names = self._call_list_parameters(node_fq_name)
                 if parameter_names is None:
                     continue
@@ -2126,6 +2157,7 @@ def main(args=None):
     except KeyboardInterrupt:
         node.get_logger().info("Configuration server received shutdown signal.")
     finally:
+        node.begin_shutdown()
         executor.shutdown()
         node.destroy_node()
         if rclpy.ok():
