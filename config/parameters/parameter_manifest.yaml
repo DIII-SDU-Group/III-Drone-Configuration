@@ -16,6 +16,14 @@ perception:
     n_lines_include:
       type: int
       value: 8
+    image_transport:
+      type: string
+      value: raw
+      options:
+      - raw
+      - compressed
+      constant: true
+      description: Cable camera image transport. compressed (lossless PNG) where frames cross a network link (the simulated camera in SIM and HIL); raw for the on-board camera.
   pl_dir_computer:
     kf_r:
       type: float

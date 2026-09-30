@@ -5,6 +5,7 @@
     /perception/hough_transformer/canny_ratio: 4
     /perception/hough_transformer/canny_kernel_size: 3
     /perception/hough_transformer/n_lines_include: 8
+    /perception/hough_transformer/image_transport: raw
     /perception/pl_dir_computer/kf_r: 0.999
     /perception/pl_dir_computer/kf_q: 0.001
     /perception/pl_dir_computer/odometry_callback_period_ms: 25
