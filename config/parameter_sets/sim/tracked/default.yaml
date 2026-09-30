@@ -87,6 +87,7 @@
     /control/maneuver_controller/cable_landing_gripper_v_gate_half_width_at_reference_z: 0.18
     /control/maneuver_controller/cable_landing_gripper_v_gate_center_y: 0.0
     /control/maneuver_controller/cable_landing_gripper_v_gate_violation_grace_s: 0.8
+    /control/maneuver_controller/cable_landing_gripper_capture_z: 0.03
     /control/maneuver_controller/cable_landing_reference_truncate_radius: 0.25
     /control/maneuver_controller/cable_landing_reached_position_euclidean_distance_threshold: 0.1
     # The simulated mmWave line point can slide along the conductor between
