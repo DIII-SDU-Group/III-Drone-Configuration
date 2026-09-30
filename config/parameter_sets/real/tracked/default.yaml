@@ -50,6 +50,8 @@
     /control/maneuver_controller/cable_push_takeoff_request_acceleration: 0.2
     /control/maneuver_controller/cable_push_jerk: 1.0
     /control/maneuver_controller/cable_push_start_timeout_s: 8.0
+    /control/maneuver_controller/cable_push_thrust_over_hover: 1.3
+    /control/maneuver_controller/cable_push_max_thrust: 0.95
     /control/maneuver_controller/maneuver_wait_for_execute_poll_ms: 100
     /control/maneuver_controller/maneuver_evaluate_done_poll_ms: 50
     /control/maneuver_controller/reached_position_euclidean_distance_threshold: 0.1
