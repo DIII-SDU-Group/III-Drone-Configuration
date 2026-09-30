@@ -395,7 +395,7 @@ control:
       value: 0.03
       min: -0.1
       max: 0.2
-      description: Cable gripper frame height (m) at or below which a conductor inside the V gate is captured by the gripper; from there the slot guides it and the landing ascends to the seat without acting on the (no longer visible) conductor estimate.
+      description: Cable gripper frame height (m) at or below which the cable landing freezes its conductor estimate; from there the offset sensor no longer sees the conductor, so the landing steers to the last estimate with its own odometry.
     cable_landing_reference_truncate_radius:
       type: float
       value: 0.25
