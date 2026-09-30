@@ -47,6 +47,9 @@
     /control/maneuver_controller/hover_by_object_max_euc_dist: 0.25
     /control/maneuver_controller/hover_on_cable_default_z_velocity: 0.1
     /control/maneuver_controller/hover_on_cable_default_yaw_rate: 0.0
+    /control/maneuver_controller/cable_push_takeoff_request_acceleration: 0.2
+    /control/maneuver_controller/cable_push_jerk: 1.0
+    /control/maneuver_controller/cable_push_start_timeout_s: 8.0
     /control/maneuver_controller/maneuver_wait_for_execute_poll_ms: 100
     /control/maneuver_controller/maneuver_evaluate_done_poll_ms: 50
     /control/maneuver_controller/reached_position_euclidean_distance_threshold: 0.1
@@ -240,6 +243,7 @@
     /behavior/select_target_line_method: closest_xy_above
     /behavior/hover_on_cable_target_z_velocity: 0.1
     /behavior/hover_on_cable_target_yaw_rate: 0.0
+    /behavior/cable_release_push_acceleration: 3.0
     /behavior/top_clearance_m: 2.0
     /behavior/horizontal_clearance_m: 2.0
     /behavior/under_cable_clearance_m: 2.0
