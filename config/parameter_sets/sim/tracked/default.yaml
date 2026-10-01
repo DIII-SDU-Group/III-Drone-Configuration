@@ -5,6 +5,7 @@
     /perception/hough_transformer/canny_ratio: 4
     /perception/hough_transformer/canny_kernel_size: 3
     /perception/hough_transformer/n_lines_include: 8
+    /perception/hough_transformer/image_transport: compressed
     /perception/pl_dir_computer/kf_r: 0.999
     /perception/pl_dir_computer/kf_q: 0.001
     /perception/pl_dir_computer/odometry_callback_period_ms: 25
@@ -15,7 +16,10 @@
     /perception/pl_mapper/alive_cnt_ceiling: 150
     /perception/pl_mapper/min_point_dist: 0.09
     /perception/pl_mapper/max_point_dist: 20.0
-    /perception/pl_mapper/view_cone_slope: 0.85
+    # Match the simulated mmWave plugin's 0.70 acceptance cone. A narrower
+    # mapper-only gate discarded valid edge-of-cone conductors after the
+    # plugin had already accepted and published them during Reach Cable.
+    /perception/pl_mapper/view_cone_slope: 0.7
     /perception/pl_mapper/strict_min_point_dist: 0.15
     /perception/pl_mapper/strict_max_point_dist: 18.0
     /perception/pl_mapper/strict_view_cone_slope: 0.9
@@ -38,7 +42,9 @@
     /control/maneuver_controller/maneuver_start_timeout_s: 1.0
     /control/maneuver_controller/maneuver_queue_size: 5
     /control/maneuver_controller/maneuver_execution_period_ms: 50
-    /control/maneuver_controller/reference_stream_timeout_ms: 500
+    # SIM and HIL share this set. HIL qualified with 1500 ms across the Pi/workstation
+    # DDS link, so both profiles use the value that passed HIL.
+    /control/maneuver_controller/reference_stream_timeout_ms: 1500
     /control/maneuver_controller/reference_callback_provider_publish_period_ms: 100
     /control/maneuver_controller/maneuver_completion_token_acquisition_timeout_s: 0.1
     /control/maneuver_controller/use_nans_when_hovering: true
@@ -46,6 +52,11 @@
     /control/maneuver_controller/hover_by_object_max_euc_dist: 0.25
     /control/maneuver_controller/hover_on_cable_default_z_velocity: 0.1
     /control/maneuver_controller/hover_on_cable_default_yaw_rate: 0.0
+    /control/maneuver_controller/cable_push_takeoff_request_acceleration: 0.2
+    /control/maneuver_controller/cable_push_jerk: 1.0
+    /control/maneuver_controller/cable_push_start_timeout_s: 8.0
+    /control/maneuver_controller/cable_push_thrust_over_hover: 1.3
+    /control/maneuver_controller/cable_push_max_thrust: 0.95
     /control/maneuver_controller/maneuver_wait_for_execute_poll_ms: 100
     /control/maneuver_controller/maneuver_evaluate_done_poll_ms: 50
     /control/maneuver_controller/reached_position_euclidean_distance_threshold: 0.1
@@ -75,12 +86,17 @@
     /control/maneuver_controller/cable_landing_safety_margin_cone_tolerance: 0.35
     /control/maneuver_controller/cable_landing_gripper_v_gate_apex_z: -0.16
     /control/maneuver_controller/cable_landing_gripper_v_gate_reference_z: 0.03
-    /control/maneuver_controller/cable_landing_gripper_v_gate_half_width_at_reference_z: 0.18
+    /control/maneuver_controller/cable_landing_gripper_v_gate_half_width_at_reference_z: 0.046
     /control/maneuver_controller/cable_landing_gripper_v_gate_center_y: 0.0
     /control/maneuver_controller/cable_landing_gripper_v_gate_violation_grace_s: 0.8
+    /control/maneuver_controller/cable_landing_gripper_capture_z: 0.03
     /control/maneuver_controller/cable_landing_reference_truncate_radius: 0.25
     /control/maneuver_controller/cable_landing_reached_position_euclidean_distance_threshold: 0.1
-    /control/maneuver_controller/cable_landing_controller_type: mpc
+    # The simulated mmWave line point can slide along the conductor between
+    # frames.  The line PID controls the physically meaningful cross-line/yaw
+    # errors and locks the conductor, instead of making the position MPC chase
+    # that arbitrary point along the cable.
+    /control/maneuver_controller/cable_landing_controller_type: line_pid
     /control/maneuver_controller/cable_landing_line_pid_ascent_velocity: 0.20
     /control/maneuver_controller/cable_landing_line_pid_max_along_velocity: 0.01
     /control/maneuver_controller/cable_landing_line_pid_max_cross_velocity: 0.12
@@ -102,14 +118,18 @@
     /control/maneuver_controller/cable_takeoff_min_target_cable_distance: 0.5
     /control/maneuver_controller/use_gripper_status_condition: true
     /control/maneuver_controller/cable_takeoff_max_target_cable_distance: 2.0
+    /control/maneuver_controller/cable_takeoff_reached_pose_norm_threshold: 0.15
     /control/maneuver_controller/generate_trajectories_asynchronously_with_delay: true
     /control/maneuver_controller/generate_trajectories_poll_period_ms: 5
     /control/maneuver_controller/generate_trajectories_timeout_ms: 1000
     /control/maneuver_controller/fly_to_position_use_mpc: false
     /control/maneuver_controller/fly_to_object_use_mpc: false
     /control/maneuver_controller/fly_to_object_target_low_pass_time_constant_s: 1.0
+    # The synthetic radar intentionally loses the selected conductor near the
+    # end of the final approach as it leaves the sensor field of view. Preserve
+    # the last validated target long enough to finish the bounded interpolation.
+    /control/maneuver_controller/fly_to_object_target_loss_grace_s: 5.0
     /control/maneuver_controller/cable_landing_use_mpc: true
-    /control/maneuver_controller/cable_takeoff_use_mpc: true
     /control/maneuver_controller/cable_landing_target_upwards_velocity: 0.5
     /control/dt: 0.2
     /control/trajectory_generator/MPC_N: 10
@@ -170,11 +190,14 @@
     /control/trajectory_generator/cable_takeoff_MPC_wjz: 0.1
     /control/trajectory_generator/cable_aware_grid_resolution_m: 0.5
     /control/trajectory_generator/cable_aware_grid_margin_m: 3.0
-    /control/trajectory_generator/cable_aware_clearance_m: 1.0
+    # Simulation and split-host HIL use an estimated cable map against a
+    # collision-enabled vehicle.  Keep enough margin for map bias plus the
+    # vehicle collision envelope; the real-aircraft profile is tuned separately.
+    /control/trajectory_generator/cable_aware_clearance_m: 2.0
     /control/trajectory_generator/cable_aware_max_astar_expansions: 50000
-    /control/trajectory_interpolator/interpolation_avg_velocity_m_s: 0.75
+    /control/trajectory_interpolator/interpolation_avg_velocity_m_s: 0.45
     /control/trajectory_interpolator/interpolation_avg_yaw_rate_rad_s: 0.5
-    /control/trajectory_interpolator/interpolation_max_velocity_m_s: 1.5
+    /control/trajectory_interpolator/interpolation_max_velocity_m_s: 0.45
     /control/trajectory_interpolator/interpolation_max_acceleration_m_s2: 0.5
     /control/trajectory_interpolator/interpolation_max_jerk_m_s3: 1.0
     /control/trajectory_interpolator/interpolation_max_yaw_rate_rad_s: 0.75
@@ -204,13 +227,14 @@
     /payload/charger_gripper/status_message_gripper_status_index: 7
     /payload/charger_gripper/battery_voltage_avg_filter_size: 10
     /payload/charger_gripper/charging_power_avg_filter_size: 10
-    /mission/mission_specification_file: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
     /mission/rosbag_recorder/artifact_root: /tmp/iii_drone/rosbags
     /mission/use_nans_when_hovering: true
     /mission/max_failed_attempts_during_maneuver: 3
     /mission/wait_for_maneuver_start_timeout_ms: 3000
     /mission/get_reference_timeout_ms: 150
-    /mission/reference_loss_timeout_ms: 500
+    # SIM and HIL share this set. HIL qualified with 1500 ms across the Pi/workstation
+    # DDS link, so both profiles use the value that passed HIL.
+    /mission/reference_loss_timeout_ms: 1500
     /mission/reference_rebase_timeout_ms: 2000
     /mission/reference_continuity_position_tolerance_m: 0.25
     /mission/reference_continuity_velocity_tolerance_m_s: 0.5
@@ -224,7 +248,10 @@
     /inspection_demo/inspection_clearance_m: 2.0
     /inspection_demo/pylon_end_clearance_m: 2.0
     /inspection_demo/pylon_structure_extent_m: 2.0
-    /inspection_demo/max_pylon_powerline_direction_mismatch_rad: 0.35
+    # The simulated mapper's direction estimate is substantially noisier than
+    # its validated line positions.  The inspection route remains aligned to
+    # the fixture-ground-truth pylon span; this only widens the eligibility gate.
+    /inspection_demo/max_pylon_powerline_direction_mismatch_rad: 1.2
     /inspection_demo/pylon_span_margin_m: 0.5
     /inspection_demo/battery_topic_timeout_s: 2.0
     /inspection_demo/battery_check_retry_count: 3
@@ -240,6 +267,7 @@
     /behavior/select_target_line_method: farthest_above
     /behavior/hover_on_cable_target_z_velocity: 0.1
     /behavior/hover_on_cable_target_yaw_rate: 0.0
+    /behavior/cable_release_push_acceleration: 3.0
     /behavior/top_clearance_m: 2.0
     /behavior/horizontal_clearance_m: 2.0
     /behavior/under_cable_clearance_m: 2.0
@@ -270,7 +298,7 @@
     - 0.4
     - 1.57079632679
     - 0.0
-    - 1.57079632679
+    - 0.0
     /tf/sim/drone_to_mmwave:
     - 0.025
     - -0.24

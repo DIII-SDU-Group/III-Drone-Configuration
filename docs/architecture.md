@@ -1,5 +1,30 @@
 # Architecture
 
+## Immutable package contract boundary
+
+Configuration release inputs are captured at CMake configure time into the build
+tree and installed through the ament package share. Even under `--symlink-install`,
+installed contract files point to build-captured artifacts rather than editable
+workspace source. The package manifest authenticates the parameter schema,
+profiles, migration metadata, JSON schema, and tracked defaults by SHA-256 and a
+content identity over the complete manifest.
+
+Compatibility and reconciliation planning are pure pre-mutation operations.
+Callers supply old and new immutable roots plus the intended writable-state root.
+Planning authenticates the complete living tree, every retained legacy shadow,
+and both contracts, but creates no files. Execution is journaled and writes shadow
+records before removing retired values from active sets.
+
+Developer startup executes the shared engine against the writable
+`$CONFIG_BASE_DIR/iii_drone` tree before selecting a set. Each bootable profile
+has an independent selector scope, so HIL, real-aircraft, and OptiTrack work can
+be iterated directly without a receiver, staged release, or activation process.
+Compatible local parameter values are preserved across ordinary workspace
+updates.
+
+Reintroduced keys are reconciled deterministically from the selected installed
+default and the local writable tree before startup.
+
 ## Purpose
 
 `iii_drone_configuration` exists to make configuration:
@@ -108,9 +133,18 @@ Its job is:
 - query the standard ROS parameter services
 - maintain server-side current values
 - push updates to nodes
-- reject operator writes if a target node rejects them
+- transact an entire operator batch through a checksummed write-ahead journal
+- compensate already-applied nodes if any update/readback/persistence step fails
+- expose an explicit divergent fault if compensation cannot prove exact rollback
 - resynchronize periodically
 - save and load runtime snapshots as ROS parameter files
+
+`tuning.py` owns content identities, the immutable session baseline, monotonic
+revision, canonical append-only WAL, atomic checkpoints/selectors, idempotent
+request replay, prepared-transaction recovery, and pending-boot confirmation.
+The ROS server remains the adapter for schema validation, distributed mutation,
+fresh readback, and active-set persistence. Baseline and current state are
+separate authenticated documents and cannot overwrite one another.
 
 It is not part of mandatory startup anymore.
 
@@ -130,12 +164,17 @@ It is not part of mandatory startup anymore.
 - `config/parameter_sets/real/tracked/default.yaml`
 - `config/parameter_sets/sim/tracked/default.yaml`
 
-### Schema install/update support
+### Immutable contract and reconciliation support
 
 - `config/parameters/parameters.yaml`
 - `config/parameters/parameter_manifest.yaml`
-- `scripts/update_installed_parameters.py`
-- `scripts/install.sh`
+- `config/configuration_contract/`
+- `iii_drone_configuration/installed_contracts.py`
+- `iii_drone_configuration/reconciliation.py`
+- `iii_drone_configuration/tuning.py`
 
-`parameter_manifest.yaml` is the source used for runtime and install-time propagation.
-`parameters.yaml` remains as a compatibility artifact and is not the preferred source.
+`parameter_manifest.yaml` is captured into the installed contract and is never
+propagated into writable state as a mutable schema copy. `parameters.yaml` remains
+only as a declared compatibility artifact. The retired `scripts/install.sh` and
+`scripts/update_installed_parameters.py` entry points fail with status 64 and name
+the canonical `iii config sim` replacement; neither mutates files.

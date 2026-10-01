@@ -131,6 +131,7 @@ def get_remote_parameter(client_node, node_fq_name, parameter_name):
 def running_graph(monkeypatch, tmp_path):
     monkeypatch.setenv("III_DRONE_SCHEMA_FILE", str(TEST_SCHEMA_FILE))
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("III_OPERATIONS_ROOT", str(tmp_path / "operations"))
     monkeypatch.setenv("SIMULATION", "true")
     write_bootstrap_parameter_file(tmp_path)
 

@@ -26,28 +26,6 @@ std::string ExpandHome(const std::string & path)
     return path;
 }
 
-std::filesystem::path SourceConfigDirectory()
-{
-    if (const char * workspace_dir = std::getenv("WORKSPACE_DIR"); workspace_dir != nullptr && workspace_dir[0] != '\0') {
-        const auto source_config_dir = std::filesystem::path(ExpandHome(workspace_dir)) /
-            "src" / "III-Drone-Configuration" / "config";
-        if (std::filesystem::exists(source_config_dir)) {
-            return source_config_dir;
-        }
-    }
-
-    try {
-        const auto package_share = ament_index_cpp::get_package_share_directory("iii_drone_configuration");
-        const auto installed_config_dir = std::filesystem::path(package_share) / "config";
-        if (std::filesystem::exists(installed_config_dir)) {
-            return installed_config_dir;
-        }
-    } catch (const std::exception &) {
-    }
-
-    return {};
-}
-
 }  // namespace
 
 template <typename nodeT>
@@ -389,21 +367,18 @@ std::string Configurator<nodeT>::resolveSchemaFilePath()
         return ExpandHome(explicit_file);
     }
 
-    const std::string config_base_dir = ExpandHome(std::getenv("CONFIG_BASE_DIR") != nullptr ? std::getenv("CONFIG_BASE_DIR") : "~/.config");
-    const auto configured = std::filesystem::path(config_base_dir) / "iii_drone" / "parameters" / "parameter_manifest.yaml";
-    if (std::filesystem::exists(configured)) {
-        return configured.string();
+    const auto package_share = ament_index_cpp::get_package_share_directory(
+        "iii_drone_configuration"
+    );
+    const auto installed_schema = std::filesystem::path(package_share) /
+        "configuration_contract" / "schema" / "parameter_manifest.yaml";
+    if (!std::filesystem::is_regular_file(installed_schema)) {
+        throw std::runtime_error(
+            "Installed immutable configuration schema is unavailable: " +
+            installed_schema.string()
+        );
     }
-
-    const auto source_config_dir = SourceConfigDirectory();
-    if (!source_config_dir.empty()) {
-        const auto source_file = source_config_dir / "parameters" / "parameter_manifest.yaml";
-        if (std::filesystem::exists(source_file)) {
-            return source_file.string();
-        }
-    }
-
-    return configured.string();
+    return installed_schema.string();
 }
 
 template <typename nodeT>
