@@ -1249,6 +1249,16 @@ tf:
     type: string
     value: ground
     constant: true
+  cable_camera_frame_id:
+    type: string
+    value: cable_camera
+    constant: true
+    description: ROS frame of the cable camera, in the Gazebo camera sensor convention (x along the optical axis, y left, z up).
+  mmwave_forward_frame_id:
+    type: string
+    value: mmwave_forward
+    constant: true
+    description: ROS frame of the forward-tilted mmWave radar (Radar-F) of the powerline SLAM evaluation sensor layout.
   drone_to_cable_gripper:
     type: float_array
     value:
@@ -1304,3 +1314,45 @@ tf:
       - -1.57079632679
       - 0.0
       constant: true
+    sensor_layout:
+      type: string
+      value: d4s_dc_drone
+      options:
+      - d4s_dc_drone
+      - d4s_dc_drone_powerline_eval
+      constant: true
+      description: Sensor layout of the simulated vehicle; must match the PX4 simulation model (PX4_SIM_MODEL=gz_<sensor_layout>). d4s_dc_drone_powerline_eval adds the forward radar (mmwave_forward) and tilts the cable camera 20 deg from upward.
+    drone_to_cable_camera:
+      type: float_array
+      value:
+      - 0.0
+      - -0.215
+      - 0.3
+      - 0.0
+      - -1.571
+      - 0.0
+      constant: true
+      description: Cable camera mount of the d4s_dc_drone layout [x, y, z, yaw, pitch, roll].
+    powerline_eval:
+      drone_to_cable_camera:
+        type: float_array
+        value:
+        - 0.0
+        - -0.215
+        - 0.3
+        - 0.0
+        - -1.2217304763960306
+        - 0.0
+        constant: true
+        description: Cable camera mount of the d4s_dc_drone_powerline_eval layout (20 deg from upward) [x, y, z, yaw, pitch, roll].
+      drone_to_mmwave_forward:
+        type: float_array
+        value:
+        - 0.105
+        - -0.24
+        - 0.285
+        - 0.0
+        - -0.6981317007977318
+        - 0.0
+        constant: true
+        description: Radar-F mount of the d4s_dc_drone_powerline_eval layout (50 deg forward from upward) [x, y, z, yaw, pitch, roll].

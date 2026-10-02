@@ -256,6 +256,8 @@
     /tf/cable_gripper_frame_id: cable_gripper
     /tf/mmwave_frame_id: mmwave
     /tf/ground_frame_id: ground
+    /tf/cable_camera_frame_id: cable_camera
+    /tf/mmwave_forward_frame_id: mmwave_forward
     /tf/drone_to_cable_gripper:
     - 0.0
     - 0.0
@@ -291,6 +293,28 @@
     - 0.28
     - 0.0
     - -1.57079632679
+    - 0.0
+    /tf/sim/sensor_layout: d4s_dc_drone
+    /tf/sim/drone_to_cable_camera:
+    - 0.0
+    - -0.215
+    - 0.3
+    - 0.0
+    - -1.571
+    - 0.0
+    /tf/sim/powerline_eval/drone_to_cable_camera:
+    - 0.0
+    - -0.215
+    - 0.3
+    - 0.0
+    - -1.2217304763960306
+    - 0.0
+    /tf/sim/powerline_eval/drone_to_mmwave_forward:
+    - 0.105
+    - -0.24
+    - 0.285
+    - 0.0
+    - -0.6981317007977318
     - 0.0
 sensor:
   cable_camera:
