@@ -583,19 +583,6 @@ class TuningSessionStore:
             "complete": through == len(entries),
         }
 
-    def ensure_session(
-        self,
-        *,
-        baseline_values: Mapping[str, Any],
-        persisted_values: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Open the implicit session without inventing a parameter transaction."""
-        self._ensure_session(
-            baseline_values=baseline_values,
-            persisted_values=persisted_values,
-        )
-        return self.status()
-
     def _load_historical_session(
         self, session_id: str
     ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:

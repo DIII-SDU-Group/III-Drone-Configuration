@@ -399,29 +399,6 @@ def test_fsynced_divergence_reconciliation_replays_after_state_write_interruptio
     assert recovered["last_result"]["reconciled"] is True
 
 
-def test_capture_can_open_the_implicit_session_without_inventing_a_transaction(
-    tmp_path: Path,
-) -> None:
-    tuning = store(tmp_path)
-
-    opened = tuning.ensure_session(
-        baseline_values=BASELINE,
-        persisted_values=BASELINE,
-    )
-    repeated = tuning.ensure_session(
-        baseline_values=BASELINE,
-        persisted_values=BASELINE,
-    )
-
-    assert opened == repeated
-    assert opened["session_id"] and opened["baseline_id"]
-    assert opened["revision"] == 0
-    assert opened["wal_sequence"] == 0
-    assert list((tmp_path / "tuning/sessions").iterdir()) == [
-        tmp_path / "tuning/sessions" / opened["session_id"]
-    ]
-
-
 def test_journal_batches_are_cursor_bound_and_retained_across_release_turnover(
     tmp_path: Path,
 ) -> None:

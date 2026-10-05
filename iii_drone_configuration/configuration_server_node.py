@@ -32,7 +32,6 @@ from iii_drone_interfaces.srv import (
     ActivatePendingBootParameters,
     ApplyConfigurationTransaction,
     DeclareParameters,
-    EnsureConfigurationSession,
     GetConfigurationJournal,
     GetCurrentParameterFile,
     GetConfigurationSession,
@@ -158,7 +157,6 @@ class ConfigurationServer(Node):
         self.set_parameter_from_gc_service: Optional[Service] = None
         self.apply_configuration_transaction_service: Optional[Service] = None
         self.get_configuration_session_service: Optional[Service] = None
-        self.ensure_configuration_session_service: Optional[Service] = None
         self.get_configuration_journal_service: Optional[Service] = None
         self.get_parameter_file_service: Optional[Service] = None
         self.set_boot_parameter_service: Optional[Service] = None
@@ -381,12 +379,6 @@ class ConfigurationServer(Node):
             self.get_configuration_session_callback,
             callback_group=self.cb_group,
         )
-        self.ensure_configuration_session_service = self.create_service(
-            EnsureConfigurationSession,
-            "ensure_configuration_session",
-            self.ensure_configuration_session_callback,
-            callback_group=self.cb_group,
-        )
         self.get_configuration_journal_service = self.create_service(
             GetConfigurationJournal,
             "get_configuration_journal",
@@ -460,7 +452,6 @@ class ConfigurationServer(Node):
             "set_parameter_from_gc_service",
             "apply_configuration_transaction_service",
             "get_configuration_session_service",
-            "ensure_configuration_session_service",
             "get_configuration_journal_service",
             "get_parameter_file_service",
             "set_boot_parameter_service",
@@ -1513,40 +1504,6 @@ class ConfigurationServer(Node):
         with self._state_lock:
             try:
                 status = self._require_tuning_store().status()
-                response.success = True
-                response.message = ""
-                response.session_json = self._canonical_json(
-                    {
-                        "schema": "iii.configuration-session-status/v1",
-                        **status,
-                    }
-                )
-            except Exception as exc:
-                response.success = False
-                response.message = str(exc)
-                response.session_json = ""
-            return response
-
-    def ensure_configuration_session_callback(self, request, response):
-        del request
-        with self._state_lock:
-            try:
-                store = self._require_tuning_store()
-                existing = store.status()
-                active_values = (
-                    dict(existing["active_values"])
-                    if existing["session_id"] is not None
-                    else dict(self.server_values)
-                )
-                persisted_values = (
-                    dict(existing["persisted_values"])
-                    if existing["session_id"] is not None
-                    else self._effective_boot_values()
-                )
-                status = store.ensure_session(
-                    baseline_values=active_values,
-                    persisted_values=persisted_values,
-                )
                 response.success = True
                 response.message = ""
                 response.session_json = self._canonical_json(
