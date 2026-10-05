@@ -1,6 +1,6 @@
 {
   "schema": "iii.configuration-package/v1",
-  "manifest_id": "ea88b2157500d6be5cb18f63dcfb2573591019eaf2da75de1d74e8e9d834a5c4",
+  "manifest_id": "0b59dbbc726fa0cb0b932722967e654f64a248fae2d1573dab82ae64c91728ed",
   "package_version": "2.2.0",
   "configuration_schema_version": 1,
   "compatibility": {
@@ -40,7 +40,7 @@
     },
     {
       "path": "tracked_defaults/sim/default.yaml",
-      "sha256": "544c69d7af632ef90d48bb2a9d824aa3fcb134511ffad1f85d5d997353503e66"
+      "sha256": "f87312a3cc2ac1c819f59c14a4173737f259cd099fc0f190697fbfb71513494d"
     }
   ],
   "tracked_sets": [
@@ -56,7 +56,7 @@
       "set_id": "default",
       "default": true,
       "path": "tracked_defaults/sim/default.yaml",
-      "sha256": "544c69d7af632ef90d48bb2a9d824aa3fcb134511ffad1f85d5d997353503e66"
+      "sha256": "f87312a3cc2ac1c819f59c14a4173737f259cd099fc0f190697fbfb71513494d"
     }
   ]
 }
