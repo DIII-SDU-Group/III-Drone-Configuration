@@ -1305,3 +1305,73 @@ cable_charging:
     value: 10.0
     min: 0.0
     max: 3600.0
+opti_track:
+  pose_relay:
+    rigid_body_id:
+      type: int
+      value: -1
+      min: -1
+      max: 999
+      constant: true
+      description: Motive rigid body id of this aircraft; the OptiTrack lab gateway streams it as /body_splitter/body_<id>/pose. -1 is unset, and the pose relay exits with an error until it is configured.
+    lab_ros_domain_id:
+      type: int
+      value: 0
+      min: 0
+      max: 232
+      constant: true
+      description: ROS domain of the OptiTrack lab gateway. Only the pose relay's motion-capture subscription joins it; the rest of the stack stays on its own domain.
+    output_rate_hz:
+      type: float
+      value: 50.0
+      min: 10.0
+      max: 120.0
+      constant: true
+      description: Rate (Hz) at which the pose relay forwards the latest motion-capture pose to PX4 as /fmu/in/vehicle_visual_odometry.
+    stale_timeout_s:
+      type: float
+      value: 0.15
+      min: 0.05
+      max: 1.0
+      constant: true
+      description: Maximum age (s) of the last motion-capture pose that the pose relay still forwards to PX4.
+    position_variance_m2:
+      type: float
+      value: 0.0001
+      min: 0.000001
+      max: 1.0
+      constant: true
+      description: Per-axis position variance (m^2) the pose relay reports to PX4 with each motion-capture pose.
+    orientation_variance_rad2:
+      type: float
+      value: 0.0004
+      min: 0.000001
+      max: 1.0
+      constant: true
+      description: Per-axis orientation variance (rad^2) the pose relay reports to PX4 with each motion-capture pose.
+    send_origin:
+      type: bool
+      value: true
+      constant: true
+      description: Whether the pose relay sets PX4's global origin to origin_latitude_deg, origin_longitude_deg and origin_altitude_m, giving the motion-capture frame a global reference without GPS.
+    origin_latitude_deg:
+      type: float
+      value: 55.3672
+      min: -90.0
+      max: 90.0
+      constant: true
+      description: Latitude (deg) of the global origin the pose relay sets in PX4 when send_origin is true.
+    origin_longitude_deg:
+      type: float
+      value: 10.4310
+      min: -180.0
+      max: 180.0
+      constant: true
+      description: Longitude (deg) of the global origin the pose relay sets in PX4 when send_origin is true.
+    origin_altitude_m:
+      type: float
+      value: 20.0
+      min: -500.0
+      max: 9000.0
+      constant: true
+      description: Altitude (m above mean sea level) of the global origin the pose relay sets in PX4 when send_origin is true.

@@ -357,6 +357,13 @@ if(BUILD_TESTING)
   )
 
   ament_add_pytest_test(
+    test_python_opti_track_pose_relay_parameters
+    "${PROJECT_SOURCE_DIR}/test/test_opti_track_pose_relay_parameters.py"
+    APPEND_ENV
+      PYTHONPATH=${PROJECT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:$ENV{PYTHONPATH}
+  )
+
+  ament_add_pytest_test(
     test_python_configuration
     "${PROJECT_SOURCE_DIR}/test/test_python_configuration.py"
     APPEND_ENV

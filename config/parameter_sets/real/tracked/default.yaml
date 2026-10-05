@@ -292,6 +292,18 @@
     - 0.0
     - -1.57079632679
     - 0.0
+    # OptiTrack pose relay (opti_track profile only). rigid_body_id -1 is
+    # unset: set the aircraft's Motive rigid body id before flying.
+    /opti_track/pose_relay/rigid_body_id: -1
+    /opti_track/pose_relay/lab_ros_domain_id: 0
+    /opti_track/pose_relay/output_rate_hz: 50.0
+    /opti_track/pose_relay/stale_timeout_s: 0.15
+    /opti_track/pose_relay/position_variance_m2: 0.0001
+    /opti_track/pose_relay/orientation_variance_rad2: 0.0004
+    /opti_track/pose_relay/send_origin: true
+    /opti_track/pose_relay/origin_latitude_deg: 55.3672
+    /opti_track/pose_relay/origin_longitude_deg: 10.4310
+    /opti_track/pose_relay/origin_altitude_m: 20.0
 sensor:
   cable_camera:
     usb_cam:
