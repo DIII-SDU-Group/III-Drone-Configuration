@@ -61,7 +61,7 @@ def test_installed_contract_authenticates_profiles_defaults_and_artifacts() -> N
     assert contract.profile("sim").parameter_profile == "sim"
     assert contract.profile("opti_track").parameter_profile == "real"
     assert contract.profile("opti_track").selector_scope == "opti_track"
-    assert contract.profile("opti_track").bootable is False
+    assert contract.profile("opti_track").bootable is True
     assert contract.profile("hil").parameter_profile == "sim"
     assert contract.profile("hil").selector_scope == "hil"
     assert contract.profile("hil").bootable is True
@@ -83,19 +83,43 @@ def test_previous_reserved_hil_contract_remains_readable_for_reconciliation(tmp_
     assert contract.profile("hil").bootable is False
 
 
-def test_previous_bootable_optitrack_contract_remains_readable_for_reconciliation(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "reserved",
+    [("opti_track",), ("hil", "opti_track")],
+)
+def test_previous_reserved_optitrack_contract_remains_readable_for_reconciliation(
+    tmp_path: Path, reserved: tuple[str, ...]
 ) -> None:
-    root = _copy_contract(tmp_path, "legacy-opti-track")
+    # A host bound to a contract that reserved OptiTrack re-validates that
+    # retained contract before it reconciles onto the bootable one.
+    root = _copy_contract(tmp_path, "legacy-" + "-".join(reserved))
     profiles_path = root / "profiles.json"
     profiles = json.loads(profiles_path.read_text(encoding="utf-8"))
-    next(row for row in profiles["profiles"] if row["runtime_profile"] == "opti_track")["bootable"] = True
+    for row in profiles["profiles"]:
+        if row["runtime_profile"] in reserved:
+            row["bootable"] = False
     _write_json(profiles_path, profiles)
     _replace_artifact_hash(root, "profiles.json")
 
     contract = load_installed_contract(root).contract
 
-    assert contract.profile("opti_track").bootable is True
+    assert {
+        item.runtime_profile for item in contract.profiles if not item.bootable
+    } == set(reserved)
+
+
+def test_non_canonical_profile_alias_is_rejected(tmp_path: Path) -> None:
+    root = _copy_contract(tmp_path, "alias")
+    profiles_path = root / "profiles.json"
+    profiles = json.loads(profiles_path.read_text(encoding="utf-8"))
+    next(row for row in profiles["profiles"] if row["runtime_profile"] == "opti_track")[
+        "parameter_profile"
+    ] = "sim"
+    _write_json(profiles_path, profiles)
+    _replace_artifact_hash(root, "profiles.json")
+
+    with pytest.raises(ConfigurationContractError, match="canonical mapping"):
+        load_installed_contract(root)
 
 
 def test_compatibility_planning_is_typed_deterministic_and_side_effect_free(
@@ -122,6 +146,7 @@ def test_compatibility_planning_is_typed_deterministic_and_side_effect_free(
     assert first.direction == "same-schema"
     assert first.parameter_profile == "real"
     assert first.selector_scope == "opti_track"
+    assert first.bootable is True
     assert first.mutations == ()
     assert first.as_dict()["plan_id"] == first.plan_id
     assert not writable.exists()

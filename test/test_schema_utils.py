@@ -1,8 +1,12 @@
+import hashlib
 import json
 from pathlib import Path
+import shutil
 
 import pytest
+import yaml
 
+from iii_drone_configuration import schema_utils
 from iii_drone_configuration.schema_utils import (
     persist_default_parameter_file_name,
     resolve_active_parameter_file,
@@ -11,15 +15,71 @@ from iii_drone_configuration.schema_utils import (
     runtime_profile_name_from_environment,
     seed_runtime_configuration,
 )
-from iii_drone_configuration.installed_contracts import resolve_installed_contract_root
+from iii_drone_configuration.installed_contracts import (
+    load_installed_contract,
+    resolve_installed_contract_root,
+)
 from iii_drone_configuration.reconciliation import ReconciliationError
 
 from conftest import write_bootstrap_parameter_file
 
 
+POSE_RELAY_DEFAULTS = {
+    "/opti_track/pose_relay/rigid_body_id": -1,
+    "/opti_track/pose_relay/lab_ros_domain_id": 0,
+    "/opti_track/pose_relay/output_rate_hz": 50.0,
+    "/opti_track/pose_relay/stale_timeout_s": 0.15,
+    "/opti_track/pose_relay/position_variance_m2": 0.0001,
+    "/opti_track/pose_relay/orientation_variance_rad2": 0.0004,
+    "/opti_track/pose_relay/send_origin": True,
+    "/opti_track/pose_relay/origin_latitude_deg": 55.3672,
+    "/opti_track/pose_relay/origin_longitude_deg": 10.431,
+    "/opti_track/pose_relay/origin_altitude_m": 20.0,
+}
+
+
 @pytest.fixture(autouse=True)
 def isolated_operations(monkeypatch, tmp_path):
     monkeypatch.setenv("III_OPERATIONS_ROOT", str(tmp_path / "operations"))
+
+
+def _active_parameters(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))["/**"]["ros__parameters"]
+
+
+def _reserved_opti_track_contract(tmp_path: Path) -> Path:
+    """The previous contract: OptiTrack reserved and no pose relay keys."""
+    root = tmp_path / "reserved-contract"
+    shutil.copytree(resolve_installed_contract_root(), root, symlinks=False)
+    profiles_path = root / "profiles.json"
+    profiles = json.loads(profiles_path.read_text(encoding="utf-8"))
+    for row in profiles["profiles"]:
+        if row["runtime_profile"] == "opti_track":
+            row["bootable"] = False
+    profiles_path.write_text(json.dumps(profiles, indent=2) + "\n", encoding="utf-8")
+    schema_path = root / "schema" / "parameter_manifest.yaml"
+    schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    del schema["opti_track"]
+    schema_path.write_text(yaml.safe_dump(schema, sort_keys=False), encoding="utf-8")
+    for profile in ("real", "sim"):
+        default_path = root / "tracked_defaults" / profile / "default.yaml"
+        document = yaml.safe_load(default_path.read_text(encoding="utf-8"))
+        for name in POSE_RELAY_DEFAULTS:
+            del document["/**"]["ros__parameters"][name]
+        default_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    manifest_path = root / "package-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for row in (*manifest["artifacts"], *manifest["tracked_sets"]):
+        row["sha256"] = hashlib.sha256((root / row["path"]).read_bytes()).hexdigest()
+    manifest["manifest_id"] = hashlib.sha256(
+        json.dumps(
+            {key: value for key, value in manifest.items() if key != "manifest_id"},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return root
 
 
 def test_resolve_schema_file_uses_only_installed_immutable_contract(
@@ -104,7 +164,11 @@ def test_developer_profiles_seed_independent_parameter_families(monkeypatch, tmp
     monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
 
     config = tmp_path / "iii_drone"
-    for profile_name, parameter_profile in (("hil", "sim"), ("real", "real")):
+    for profile_name, parameter_profile in (
+        ("hil", "sim"),
+        ("real", "real"),
+        ("opti_track", "real"),
+    ):
         seeded = seed_runtime_configuration(profile_name)
         assert seeded
         assert (config / "profiles" / f"{profile_name}.yaml").is_file()
@@ -149,15 +213,66 @@ def test_hil_uses_reconciled_sim_parameters_without_rewriting_them(
     assert (tmp_path / "operations").is_dir()
 
 
-def test_opti_track_rejects_boot_until_its_pose_bridge_is_installed(
-    monkeypatch, tmp_path
-):
+def test_opti_track_seeds_an_independent_developer_selector(monkeypatch, tmp_path):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
     config = tmp_path / "iii_drone"
+    seeded = seed_runtime_configuration("opti_track")
+
+    parameter_file = (
+        config / "parameter_sets" / "opti_track" / "tracked" / "default.yaml"
+    )
+    assert seeded
+    assert resolve_active_parameter_file("opti_track") == parameter_file
+    assert (config / "profiles" / "opti_track.yaml").is_file()
+    assert (config / "state" / "opti_track" / "contract.json").is_file()
+    # The real aircraft's living selector is untouched by lab work.
+    assert not (config / "parameter_sets" / "real").exists()
+    parameters = _active_parameters(parameter_file)
+    assert {name: parameters[name] for name in POSE_RELAY_DEFAULTS} == POSE_RELAY_DEFAULTS
+
+
+def test_reserved_profile_is_refused_before_any_state_is_written(monkeypatch, tmp_path):
+    monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
+    reserved = _reserved_opti_track_contract(tmp_path)
+    monkeypatch.setattr(schema_utils, "resolve_installed_contract_root", lambda: reserved)
+
     with pytest.raises(ReconciliationError, match="reserved and non-bootable: opti_track"):
         seed_runtime_configuration("opti_track")
-    assert not (config / "parameter_sets" / "opti_track").exists()
+    assert not (tmp_path / "config" / "iii_drone" / "parameter_sets").exists()
+
+
+@pytest.mark.parametrize("profile_name", ["sim", "hil", "real"])
+def test_profiles_bound_to_the_reserved_contract_gain_the_pose_relay_defaults(
+    monkeypatch, tmp_path, profile_name
+):
+    monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
+    for name in ("III_LOGICAL_TARGET", "III_ACTIVE_RELEASE_ID", "III_WORKSPACE_RELEASE_ID"):
+        monkeypatch.delenv(name, raising=False)
+    installed = resolve_installed_contract_root()
+    reserved = _reserved_opti_track_contract(tmp_path)
+    monkeypatch.setattr(schema_utils, "resolve_installed_contract_root", lambda: reserved)
+    assert seed_runtime_configuration(profile_name)
+    tracked = (
+        tmp_path / "iii_drone" / "parameter_sets" / profile_name / "tracked" / "default.yaml"
+    )
+    before = _active_parameters(tracked)
+    assert not set(POSE_RELAY_DEFAULTS) & set(before)
+
+    # Startup on the new contract re-validates the retained reserved contract
+    # and adds the relay keys without an operator review.
+    monkeypatch.setattr(schema_utils, "resolve_installed_contract_root", lambda: installed)
+    assert seed_runtime_configuration(profile_name)
+
+    after = _active_parameters(tracked)
+    assert {name: after[name] for name in POSE_RELAY_DEFAULTS} == POSE_RELAY_DEFAULTS
+    assert {name: value for name, value in after.items() if name in before} == before
+    state = json.loads(
+        (tmp_path / "iii_drone" / "state" / profile_name / "contract.json").read_text()
+    )
+    assert state["manifest_id"] == load_installed_contract(installed).contract.manifest_id
 
 
 def test_active_parameter_file_prefers_default_snapshot(monkeypatch, tmp_path):

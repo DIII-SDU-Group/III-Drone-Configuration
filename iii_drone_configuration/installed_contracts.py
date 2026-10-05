@@ -24,18 +24,29 @@ MIGRATION_SCHEMA = "iii.configuration-migrations/v1"
 HASH_LENGTH = 64
 EXPECTED_PROFILE_MAP = {
     "hil": ("sim", "hil", True),
-    "opti_track": ("real", "opti_track", False),
+    "opti_track": ("real", "opti_track", True),
     "real": ("real", "real", True),
     "sim": ("sim", "sim", True),
 }
+# Mappings of earlier contracts. A host re-validates the retained contract its
+# writable state is bound to before reconciling onto a new one, so every
+# mapping a host may still be bound to must stay readable.
 LEGACY_PROFILE_MAPS = (
+    # HIL reserved and non-bootable.
     {
         **EXPECTED_PROFILE_MAP,
         "hil": ("sim", "hil", False),
     },
+    # OptiTrack reserved until its pose relay existed.
     {
         **EXPECTED_PROFILE_MAP,
-        "opti_track": ("real", "opti_track", True),
+        "opti_track": ("real", "opti_track", False),
+    },
+    # Both reserved, accepted while OptiTrack was reserved.
+    {
+        **EXPECTED_PROFILE_MAP,
+        "hil": ("sim", "hil", False),
+        "opti_track": ("real", "opti_track", False),
     },
 )
 SET_ID = re.compile(r"^[a-z][a-z0-9_-]*$")

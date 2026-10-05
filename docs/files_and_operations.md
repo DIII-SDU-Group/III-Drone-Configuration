@@ -140,9 +140,11 @@ Active parameter-set resolution order:
 - `config/parameters/parameters.yaml` still exists as a compatibility artifact and should not be treated as the schema source of truth.
 - The service layer still uses `default_parameter_file` naming in a few message fields for compatibility, even though the runtime model is now selector-driven parameter sets.
 - The package has both C++ and Python validation implementations; they are conceptually aligned, but maintenance should keep them in sync.
-- `opti_track` shares the immutable `real` default and has an independent
-  selector scope, but remains non-bootable until its pose bridge is installed
-  and validated. `hil` shares the `sim` baseline and reconciles an independent
+- `opti_track` shares the immutable `real` default and reconciles an independent
+  writable selector for the reduced-mode OptiTrack lab profile (no cable,
+  payload, or perception; PX4 takes its pose from motion capture through the
+  pose relay, configured by the boot-only `/opti_track/pose_relay/*`
+  parameters). `hil` shares the `sim` baseline and reconciles an independent
   writable selector for split-host bench operation.
 
 Tracked defaults are source-owned developer inputs. Normal live tuning remains

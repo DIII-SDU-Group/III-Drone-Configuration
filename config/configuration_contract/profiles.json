@@ -11,7 +11,7 @@
       "runtime_profile": "opti_track",
       "parameter_profile": "real",
       "selector_scope": "opti_track",
-      "bootable": false
+      "bootable": true
     },
     {
       "runtime_profile": "real",
