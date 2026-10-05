@@ -261,7 +261,7 @@
     /cable_charging/minimum_stay_on_cable_s: 10.0
     /behavior/server_timeout_ms: 60000
     /behavior/wait_for_server_timeout_ms: 60000
-    /behavior/tick_period_ms: 10
+    /behavior/tick_period_ms: 50
     /behavior/target_cable_distance: 1.5
     /behavior/line_min_height_above_drone: 1.0
     /behavior/select_target_line_method: farthest_above
