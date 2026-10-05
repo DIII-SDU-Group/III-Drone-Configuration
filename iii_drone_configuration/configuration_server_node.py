@@ -98,6 +98,10 @@ class ConfigurationServer(Node):
     _RUNTIME_SNAPSHOT_PREFIX = "runtime_parameters_"
     _OFFLINE_PRUNE_GRACE_SEC = 10.0
     _PARAMETER_SERVICE_TIMEOUT_SEC = 2.0
+    # The reconcile timer (2 s) handles announced nodes at once; a sweep of
+    # every node in the graph (list_parameters on each, incl. workstation and
+    # TF helper nodes) runs at this period instead of every tick.
+    _FULL_GRAPH_SCAN_PERIOD_SEC = 10.0
     _PARAMETER_READBACK_ATTEMPTS = 3
     _PARAMETER_READBACK_RETRY_SEC = 0.1
 
@@ -136,6 +140,7 @@ class ConfigurationServer(Node):
         self.node_registry: dict[str, ManagedNodeRecord] = {}
         self._state_lock = threading.RLock()
         self._reconcile_lock = threading.Lock()
+        self._last_full_graph_scan_monotonic = float("-inf")
         # Set once the process is stopping: in-flight reconcile passes and
         # parameter-service waits end instead of using destroyed handles.
         self._shutdown_requested = threading.Event()
@@ -591,17 +596,22 @@ class ConfigurationServer(Node):
             future._set_executor(None)
         except Exception:
             pass
+        # Without an executor the done callbacks run where the response is
+        # delivered: wait for that instead of polling every 10 ms.
+        done = threading.Event()
         future.add_done_callback(self._consume_future_result)
+        future.add_done_callback(lambda _future: done.set())
         deadline = time.monotonic() + timeout_sec
-        while time.monotonic() < deadline and not self._shutdown_requested.is_set():
-            if future.done():
-                try:
-                    return future.result()
-                except Exception:
-                    return None
-            time.sleep(0.01)
-        future.cancel()
-        return None
+        while not done.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0 or self._shutdown_requested.is_set():
+                future.cancel()
+                return None
+            done.wait(timeout=min(0.1, remaining))
+        try:
+            return future.result()
+        except Exception:
+            return None
 
     def _call_list_parameters(self, node_fq_name: str) -> Optional[list[str]]:
         client = self._parameter_client(ListParameters, node_fq_name, "list_parameters")
@@ -684,6 +694,13 @@ class ConfigurationServer(Node):
                 managed_keys = set(self.managed_keys)
                 pending_node_notifications = set(self.pending_node_notifications)
                 full_graph_scan = not pending_node_notifications
+                if full_graph_scan:
+                    if (
+                        time.monotonic() - self._last_full_graph_scan_monotonic
+                        < self._FULL_GRAPH_SCAN_PERIOD_SEC
+                    ):
+                        return
+                    self._last_full_graph_scan_monotonic = time.monotonic()
                 target_fq_names = pending_node_notifications or set(
                     self._get_node_fq_names()
                 )
