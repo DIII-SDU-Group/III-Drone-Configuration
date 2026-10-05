@@ -31,7 +31,6 @@ from rcl_interfaces.srv import GetParameters, ListParameters, SetParameters
 from iii_drone_interfaces.srv import (
     ActivatePendingBootParameters,
     ApplyConfigurationTransaction,
-    DeleteParameterFile,
     DeclareParameters,
     EnsureConfigurationSession,
     GetConfigurationJournal,
@@ -162,7 +161,6 @@ class ConfigurationServer(Node):
         self.ensure_configuration_session_service: Optional[Service] = None
         self.get_configuration_journal_service: Optional[Service] = None
         self.get_parameter_file_service: Optional[Service] = None
-        self.delete_parameter_file_service: Optional[Service] = None
         self.set_boot_parameter_service: Optional[Service] = None
         self.get_pending_boot_parameters_service: Optional[Service] = None
         self.activate_pending_boot_parameters_service: Optional[Service] = None
@@ -401,12 +399,6 @@ class ConfigurationServer(Node):
             self.get_parameter_file_callback,
             callback_group=self.cb_group,
         )
-        self.delete_parameter_file_service = self.create_service(
-            DeleteParameterFile,
-            "delete_parameter_file",
-            self.delete_parameter_file_callback,
-            callback_group=self.cb_group,
-        )
         self.set_boot_parameter_service = self.create_service(
             SetBootParameter,
             "set_boot_parameter",
@@ -471,7 +463,6 @@ class ConfigurationServer(Node):
             "ensure_configuration_session_service",
             "get_configuration_journal_service",
             "get_parameter_file_service",
-            "delete_parameter_file_service",
             "set_boot_parameter_service",
             "get_pending_boot_parameters_service",
             "activate_pending_boot_parameters_service",
@@ -1609,31 +1600,6 @@ class ConfigurationServer(Node):
                 response.content_sha256 = ""
             return response
 
-    def delete_parameter_file_callback(self, request, response):
-        with self._state_lock:
-            try:
-                document = self._parse_canonical_request(
-                    request.request_json,
-                    schema="iii.configuration-snapshot-delete-request/v1",
-                    fields={
-                        "schema",
-                        "snapshot_id",
-                        "force",
-                        "confirmation",
-                        "capture_receipt",
-                    },
-                    label="configuration snapshot delete request",
-                )
-                result = self._delete_parameter_file(document)
-                response.success = True
-                response.message = ""
-                response.result_json = self._canonical_json(result)
-            except Exception as exc:
-                response.success = False
-                response.message = str(exc)
-                response.result_json = ""
-            return response
-
     def _parse_canonical_request(
         self,
         raw: str,
@@ -1672,111 +1638,6 @@ class ConfigurationServer(Node):
         except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
             raise TuningError(f"configuration snapshot is invalid: {exc}") from exc
         return reference, path, content
-
-    def _delete_parameter_file(
-        self, document: Mapping[str, object]
-    ) -> dict[str, object]:
-        snapshot_id = document["snapshot_id"]
-        force = document["force"]
-        confirmation = document["confirmation"]
-        receipt = document["capture_receipt"]
-        if not isinstance(snapshot_id, str) or not snapshot_id.startswith("snapshots/"):
-            raise TuningError("only named snapshot files may be deleted")
-        if not isinstance(force, bool):
-            raise TuningError("snapshot delete force flag is invalid")
-        if confirmation is not None and not isinstance(confirmation, str):
-            raise TuningError("snapshot delete confirmation is invalid")
-        reference, path, content = self._read_parameter_file(snapshot_id)
-        protected = {self.current_parameter_file, self._default_snapshot_file_name()}
-        status = self._require_tuning_store().status()
-        last_result = status.get("last_result")
-        if isinstance(last_result, dict):
-            persistence_reference = last_result.get("persistence_reference")
-            if isinstance(persistence_reference, str):
-                protected.add(persistence_reference)
-        if reference in protected:
-            raise TuningError(
-                "active, default, or pending configuration sets cannot be deleted"
-            )
-        digest = hashlib.sha256(content).hexdigest()
-        if force:
-            if confirmation != f"delete:{reference}":
-                raise TuningError(
-                    "force deletion requires the exact snapshot-bound confirmation"
-                )
-        else:
-            self._validate_capture_receipt(
-                receipt,
-                snapshot_id=reference,
-                content_sha256=digest,
-                status=status,
-            )
-        path.unlink()
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-        return {
-            "schema": "iii.configuration-snapshot-delete-result/v1",
-            "snapshot_id": reference,
-            "content_sha256": digest,
-            "forced": force,
-            "deleted": True,
-        }
-
-    def _validate_capture_receipt(
-        self,
-        value: object,
-        *,
-        snapshot_id: str,
-        content_sha256: str,
-        status: Mapping[str, object],
-    ) -> None:
-        fields = {
-            "schema",
-            "receipt_id",
-            "capture_id",
-            "snapshot_id",
-            "content_sha256",
-            "target_id",
-            "runtime_profile",
-            "release_id",
-            "manifest_id",
-        }
-        if not isinstance(value, dict) or set(value) != fields:
-            raise TuningError("a verified local capture receipt is required")
-        identity_value = {
-            key: item for key, item in value.items() if key != "receipt_id"
-        }
-        receipt_id = hashlib.sha256(
-            self._canonical_json(identity_value).encode("utf-8")
-        ).hexdigest()
-        if (
-            value["schema"] != "iii.configuration-capture-receipt/v1"
-            or value["receipt_id"] != receipt_id
-            or not isinstance(value["capture_id"], str)
-            or len(value["capture_id"]) != 64
-            or any(
-                character not in "0123456789abcdef" for character in value["capture_id"]
-            )
-            or value["snapshot_id"] != snapshot_id
-            or value["content_sha256"] != content_sha256
-            or any(
-                value[field] != status[field]
-                for field in (
-                    "target_id",
-                    "runtime_profile",
-                    "release_id",
-                    "manifest_id",
-                )
-            )
-        ):
-            raise TuningError("local capture receipt does not match this snapshot")
-
-    ############################################################################
-    # Compatibility services
-    ############################################################################
 
     def declare_parameters_callback(self, request, response):
         response.succeeded = False
