@@ -312,8 +312,11 @@ if(BUILD_TESTING)
   target_link_libraries(test_configuration iii_drone_configuration_lib)
   ament_target_dependencies(test_configuration rclcpp)
 
+  # Run in a coordinated ROS domain instead of the inherited one (the
+  # devcontainer exports ROS_DOMAIN_ID=0), never a live SIM/HIL domain.
   ament_add_gtest(test_configurator
     "${PROJECT_SOURCE_DIR}/test/test_configurator.cpp"
+    RUNNER "${PROJECT_SOURCE_DIR}/test/ros_domain_isolated_runner.py"
   )
   target_link_libraries(test_configurator iii_drone_configuration_lib)
   target_compile_definitions(test_configurator PRIVATE
