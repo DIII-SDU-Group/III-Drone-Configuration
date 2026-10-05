@@ -98,7 +98,8 @@ perception, and corridor parts, and PX4 takes its pose from motion capture
 through the pose relay. The relay reads the boot-only
 `/opti_track/pose_relay/*` parameters, which are present in both parameter
 families; set `/opti_track/pose_relay/rigid_body_id` (default `-1`, unset) in
-the `opti_track` selector scope before flying.
+the `opti_track` selector scope before flying. While it is unset the relay stays
+up but never becomes ready.
 
 At runtime every bootable developer profile is reconciled into
 `$CONFIG_BASE_DIR/iii_drone`. The Pi uses its normal writable

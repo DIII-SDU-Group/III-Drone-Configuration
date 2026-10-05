@@ -1313,7 +1313,7 @@ opti_track:
       min: -1
       max: 999
       constant: true
-      description: Motive rigid body id of this aircraft; the OptiTrack lab gateway streams it as /body_splitter/body_<id>/pose. -1 is unset, and the pose relay exits with an error until it is configured.
+      description: Motive rigid body id of this aircraft; the OptiTrack lab gateway streams it as /body_splitter/body_<id>/pose. -1 is unset, and until it is configured the pose relay stays up but never becomes ready (its health reports ERROR).
     lab_ros_domain_id:
       type: int
       value: 0
