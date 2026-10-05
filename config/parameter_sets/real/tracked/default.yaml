@@ -1,6 +1,8 @@
 /**:
   ros__parameters:
     /perception/begin_running: false
+    /perception/processing_stack: legacy
+    /perception/powerline_slam/runtime_config: none
     /perception/hough_transformer/canny_low_threshold: 50
     /perception/hough_transformer/canny_ratio: 4
     /perception/hough_transformer/canny_kernel_size: 3

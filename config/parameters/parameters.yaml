@@ -3,6 +3,20 @@ perception:
     type: bool
     value: false
     constant: true
+  processing_stack:
+    type: string
+    value: legacy
+    options:
+    - legacy
+    - powerline_slam
+    constant: true
+    description: Perception processing stack the canonical system profile instantiates at boot (static for a booted session; no hot switching). legacy runs hough_transformer, pl_dir_computer and pl_mapper; powerline_slam runs the separate powerline_slam lifecycle node instead and is valid only for the sim runtime profile with /tf/sim/sensor_layout d4s_dc_drone_powerline_eval.
+  powerline_slam:
+    runtime_config:
+      type: string
+      value: none
+      constant: true
+      description: Path of the powerline_slam node's runtime configuration (iii.powerline-slam-runtime-config/v1 JSON naming the calibration set, map and mission priors, gyro covariance and estimator contracts); none leaves the node unconfigurable.
   hough_transformer:
     canny_low_threshold:
       type: int

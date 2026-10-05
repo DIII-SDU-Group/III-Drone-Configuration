@@ -1,6 +1,6 @@
 {
   "schema": "iii.configuration-package/v1",
-  "manifest_id": "1a05cae45af66ef83192fb0292e4292b32dfa6b5e672e0cf9bba3312a7d8662d",
+  "manifest_id": "3549ba8a73b937f486e889c76e25fc13b4e893afdd0941963c7c601f53a2662a",
   "package_version": "2.2.0",
   "configuration_schema_version": 1,
   "compatibility": {
@@ -32,15 +32,15 @@
     },
     {
       "path": "schema/parameter_manifest.yaml",
-      "sha256": "68b4ecc178e0a48d82dd536cba2f89d006dc66d980b9a8d986481df3f3783954"
+      "sha256": "cc74bfcc12a1684306aad2fd1255e135e638b364e7ad55c41b1c8aa074825a45"
     },
     {
       "path": "tracked_defaults/real/default.yaml",
-      "sha256": "a99cffcc21586fdb476dc9b960516b24d575b718494b44ee2e0487b4c854475f"
+      "sha256": "d6a8d34ffb16bb238b43257ce78968b0bcc4054753b9bffea62de1a20ab55819"
     },
     {
       "path": "tracked_defaults/sim/default.yaml",
-      "sha256": "d79ff872b3362479cf8e165b3dc8be83f1c8e4f42058b87c6d8efbe758cc8770"
+      "sha256": "02ce796c5703eac23124ec0c9187b2d8792dea63ac024e2a74e9beeb987c1a10"
     }
   ],
   "tracked_sets": [
@@ -49,14 +49,14 @@
       "set_id": "default",
       "default": true,
       "path": "tracked_defaults/real/default.yaml",
-      "sha256": "a99cffcc21586fdb476dc9b960516b24d575b718494b44ee2e0487b4c854475f"
+      "sha256": "d6a8d34ffb16bb238b43257ce78968b0bcc4054753b9bffea62de1a20ab55819"
     },
     {
       "profile": "sim",
       "set_id": "default",
       "default": true,
       "path": "tracked_defaults/sim/default.yaml",
-      "sha256": "d79ff872b3362479cf8e165b3dc8be83f1c8e4f42058b87c6d8efbe758cc8770"
+      "sha256": "02ce796c5703eac23124ec0c9187b2d8792dea63ac024e2a74e9beeb987c1a10"
     }
   ]
 }
