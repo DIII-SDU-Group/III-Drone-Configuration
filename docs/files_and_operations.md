@@ -55,9 +55,10 @@ Legacy installer scripts are retained only as deterministic failure shims. Use:
 - `iii config sim review --decision ...`
 - confirmed `iii config sim reset [--restore CHECKPOINT_ID]`
 
-Aircraft reconciliation is not exposed as a writable runtime command. Use
-`iii deploy activate`; if a review is returned, continue it with
-`iii deploy continue OPERATION_ID --decision ...`.
+Aircraft configuration has no separate reconciliation command: `iii deploy dev`
+synchronizes the configuration source, and the runtime reconciles the profile's
+writable state when it starts. A reintroduced key stops that start and names its
+review record.
 
 ## Common Operations
 

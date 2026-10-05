@@ -33,6 +33,10 @@ DISCOVERY_TIMEOUT_SECONDS = 10.0
 
 
 def _resolve_cpp_test_executable() -> Path:
+    # colcon test passes the executable from whichever build base built it.
+    configured = os.environ.get("III_CONFIGURATOR_MANAGED_TEST_NODE")
+    if configured:
+        return Path(configured)
     workspace_root = Path(__file__).resolve().parents[3]
     candidates = (
         workspace_root / "build" / "iii_drone_configuration" / "configurator_managed_test_node",

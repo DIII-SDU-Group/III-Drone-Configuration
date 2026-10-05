@@ -249,8 +249,6 @@ def test_profiles_bound_to_the_reserved_contract_gain_the_pose_relay_defaults(
 ):
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("WORKSPACE_DIR", str(Path(__file__).resolve().parents[3]))
-    for name in ("III_LOGICAL_TARGET", "III_ACTIVE_RELEASE_ID", "III_WORKSPACE_RELEASE_ID"):
-        monkeypatch.delenv(name, raising=False)
     installed = resolve_installed_contract_root()
     reserved = _reserved_opti_track_contract(tmp_path)
     monkeypatch.setattr(schema_utils, "resolve_installed_contract_root", lambda: reserved)

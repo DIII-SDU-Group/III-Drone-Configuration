@@ -197,21 +197,15 @@ class ConfigurationServer(Node):
 
     def _initialize_tuning_store(self) -> None:
         manifest_id = self._configuration_manifest_id()
-        release_id = (
-            os.environ.get("III_ACTIVE_RELEASE_ID")
-            or os.environ.get("III_WORKSPACE_RELEASE_ID")
-            or manifest_id
-        )
-        workspace_id = os.environ.get("III_WORKSPACE_RELEASE_ID") or release_id
-        target_id = os.environ.get("III_LOGICAL_TARGET") or (
-            "sim" if self._profile_name == "sim" else "drone"
-        )
+        # The installed configuration contract identifies the configuration
+        # source; the session records keep it in their release and workspace
+        # identity fields.
         self._tuning_store = TuningSessionStore(
             root=self._tuning_state_root(),
-            target_id=target_id,
+            target_id="sim" if self._profile_name == "sim" else "drone",
             runtime_profile=self._profile_name,
-            release_id=release_id,
-            workspace_id=workspace_id,
+            release_id=manifest_id,
+            workspace_id=manifest_id,
             manifest_id=manifest_id,
             now=self._utc_now,
         )

@@ -8,7 +8,7 @@ def main() -> int:
     print(
         "update_installed_parameters.py is retired: use 'iii config sim inspect', "
         "'iii config sim checkpoint', or confirmed 'iii config sim reset'. "
-        "Aircraft configuration is reconciled only by the deployment receiver.",
+        "Aircraft configuration is workspace source: synchronize it with 'iii deploy dev'.",
         file=sys.stderr,
     )
     return 64

@@ -40,8 +40,8 @@ def runtime_profile_name_from_environment() -> str:
 
     HIL intentionally enables simulation-specific node behavior while executing
     on the aircraft.  ``SIMULATION`` therefore describes behavior, not the
-    runtime/configuration identity.  The release launcher supplies the latter
-    explicitly through ``III_SYSTEM_PROFILE``.
+    runtime/configuration identity.  The runtime environment (setup scripts and
+    the supervision daemon) supplies the latter through ``III_SYSTEM_PROFILE``.
     """
     selected = os.environ.get("III_SYSTEM_PROFILE", "").strip()
     return selected or profile_name_from_environment()
@@ -307,7 +307,6 @@ def seed_runtime_configuration(
         raise ReconciliationError(
             f"runtime profile is reserved and non-bootable: {profile_name}"
         )
-    selector_scope = profile.selector_scope
     iii_config_dir = resolve_iii_config_dir()
     # HIL deliberately uses the simulation parameter family, while real and
     # OptiTrack use the real family. Each profile retains its own selector
@@ -318,12 +317,8 @@ def seed_runtime_configuration(
         writable_state_root=iii_config_dir,
         operations_root=resolve_configuration_operations_root(),
         runtime_profile=profile_name,
-        target_id=os.environ.get("III_LOGICAL_TARGET", profile_name),
-        release_id=(
-            os.environ.get("III_ACTIVE_RELEASE_ID")
-            or os.environ.get("III_WORKSPACE_RELEASE_ID")
-            or contract.manifest_id
-        ),
+        target_id=profile_name,
+        release_id=contract.manifest_id,
     )
     return {
         relative: iii_config_dir / PurePosixPath(relative)
