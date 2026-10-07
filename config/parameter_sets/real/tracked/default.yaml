@@ -39,7 +39,7 @@
     /control/maneuver_controller/maneuver_start_timeout_s: 1.0
     /control/maneuver_controller/maneuver_queue_size: 5
     /control/maneuver_controller/maneuver_execution_period_ms: 50
-    /control/maneuver_controller/reference_stream_timeout_ms: 500
+    /control/maneuver_controller/reference_stream_timeout_ms: 1500
     /control/maneuver_controller/reference_callback_provider_publish_period_ms: 100
     /control/maneuver_controller/maneuver_completion_token_acquisition_timeout_s: 0.1
     /control/maneuver_controller/use_nans_when_hovering: true
@@ -216,7 +216,7 @@
     /mission/max_failed_attempts_during_maneuver: 3
     /mission/wait_for_maneuver_start_timeout_ms: 3000
     /mission/get_reference_timeout_ms: 150
-    /mission/reference_loss_timeout_ms: 500
+    /mission/reference_loss_timeout_ms: 1500
     /mission/reference_rebase_timeout_ms: 2000
     /mission/reference_continuity_position_tolerance_m: 0.25
     /mission/reference_continuity_velocity_tolerance_m_s: 0.5

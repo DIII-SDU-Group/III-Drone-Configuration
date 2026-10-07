@@ -1470,6 +1470,19 @@ def execute_reconciliation(
     current_state_id = _tree_state_id(plan.writable_state_root, plan.selector_scope)
     if journal is None and current_state_id != plan.initial_state_id:
         raise ReconciliationError("reconciliation plan is stale against writable state")
+    if (
+        journal is not None
+        and journal["phase"] == "complete"
+        and journal["state_id"] != current_state_id
+    ):
+        # The scope was put back to this plan's initial state after an earlier
+        # run completed (for example, removed); that run's result is gone.
+        if current_state_id != plan.initial_state_id:
+            raise ReconciliationError(
+                "reconciliation plan is stale against writable state"
+            )
+        journal = None
+        completed = []
     if journal is not None and journal["phase"] == "complete":
         completed_documents = _apply_review_decisions(plan, resolved_decisions)
         return ReconciliationResult(

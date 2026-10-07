@@ -183,6 +183,40 @@ def test_identical_startup_reconciliation_is_content_idempotent(tmp_path: Path):
     assert after == before
 
 
+def test_startup_reconciliation_seeds_again_after_the_scope_was_removed(
+    tmp_path: Path,
+):
+    contract = _contract(tmp_path, "contract")
+    state = tmp_path / "state"
+    operations = tmp_path / "operations"
+
+    def seed():
+        return reconcile_simulation_startup(
+            immutable_root=contract,
+            writable_state_root=state,
+            operations_root=operations,
+            runtime_profile="sim",
+            target_id="sim",
+            release_id="release-old",
+        )
+
+    seed()
+    seeded = {
+        path.relative_to(state).as_posix(): path.read_bytes()
+        for path in state.rglob("*")
+        if path.is_file()
+    }
+    assert "parameter_sets/sim/tracked/default.yaml" in seeded
+    shutil.rmtree(state)
+
+    assert seed().status == "complete"
+    assert {
+        path.relative_to(state).as_posix(): path.read_bytes()
+        for path in state.rglob("*")
+        if path.is_file()
+    } == seeded
+
+
 def test_hil_startup_migrates_legacy_sim_target_identity(tmp_path: Path):
     contract = _contract(tmp_path, "contract")
     state = tmp_path / "state"
