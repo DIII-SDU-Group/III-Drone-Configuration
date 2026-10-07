@@ -249,3 +249,24 @@ def test_fly_to_object_target_loss_grace_matches_profile(
         "/control/maneuver_controller/fly_to_object_target_loss_grace_s"
     ]
     assert grace_s == pytest.approx(expected_grace_s)
+
+
+def test_a_consistent_set_applies_regardless_of_its_order():
+    # strict_view_cone_slope's minimum is view_cone_slope. A set that lowers
+    # both is valid, but applying the strict slope first judged it against the
+    # old (schema default) view slope and rejected the real parameter set.
+    strict = "/perception/pl_mapper/strict_view_cone_slope"
+    view = "/perception/pl_mapper/view_cone_slope"
+    handler = ParameterHandler.from_parameter_file(str(_production_schema_file()))
+    assert handler.get_param_value(view) > 0.75
+
+    with pytest.raises(RuntimeError, match="below schema minimum"):
+        handler.set_param(strict, 0.75, parameter_initialized=False, force_constant=True)
+
+    handler.set_params({strict: 0.75, view: 0.7})
+
+    assert handler.get_param_value(strict) == pytest.approx(0.75)
+    assert handler.get_param_value(view) == pytest.approx(0.7)
+    with pytest.raises(RuntimeError, match="below schema minimum"):
+        handler.set_params({strict: 0.5})
+    assert handler.get_param_value(strict) == pytest.approx(0.75)

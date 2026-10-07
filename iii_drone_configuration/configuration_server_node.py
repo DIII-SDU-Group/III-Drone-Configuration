@@ -223,31 +223,25 @@ class ConfigurationServer(Node):
             # process at mixed values. Re-establish the prior durable authority;
             # a later full-graph pass must still prove exact fresh readbacks
             # before the fault is cleared.
-            for name, value in status["active_values"].items():
-                if name not in self.managed_keys:
-                    continue
-                self.server_values[name] = value
-                if self.parameter_handler is not None:
-                    self.parameter_handler.set_param(
-                        name,
-                        value,
-                        parameter_initialized=False,
-                        force_constant=True,
-                    )
+            restored = {
+                name: value
+                for name, value in status["active_values"].items()
+                if name in self.managed_keys
+            }
+            self.server_values.update(restored)
+            if self.parameter_handler is not None:
+                self.parameter_handler.set_params(restored)
         # Persisted boot values may already be present in the active YAML while
         # the running graph still reports the prior active value.  The journal,
         # not the file alone, distinguishes those states.
-        for name in self._pending_boot_values:
-            if name in status["active_values"]:
-                value = status["active_values"][name]
-                self.server_values[name] = value
-                if self.parameter_handler is not None:
-                    self.parameter_handler.set_param(
-                        name,
-                        value,
-                        parameter_initialized=False,
-                        force_constant=True,
-                    )
+        active_pending = {
+            name: status["active_values"][name]
+            for name in self._pending_boot_values
+            if name in status["active_values"]
+        }
+        self.server_values.update(active_pending)
+        if self.parameter_handler is not None:
+            self.parameter_handler.set_params(active_pending)
 
     def _normalize_parameter_file_reference(
         self, file_name: str, *, default_subdir: str
@@ -838,13 +832,8 @@ class ConfigurationServer(Node):
                             f"durable divergent state names an unmanaged parameter: {name}"
                         )
                     self.server_values[name] = value
-                    if self.parameter_handler is not None:
-                        self.parameter_handler.set_param(
-                            name,
-                            value,
-                            parameter_initialized=False,
-                            force_constant=True,
-                        )
+                if self.parameter_handler is not None:
+                    self.parameter_handler.set_params(active_values)
 
                 for name in affected_names:
                     if self._restart_semantics(name) != "none":
@@ -1237,11 +1226,8 @@ class ConfigurationServer(Node):
             True,
         )
 
-        for parameter_name, value in values.items():
-            self.parameter_handler.set_param(
-                parameter_name, value, parameter_initialized=False, force_constant=True
-            )
-            self.server_values[parameter_name] = value
+        self.parameter_handler.set_params(values)
+        self.server_values.update(values)
 
     def _require_tuning_store(self) -> TuningSessionStore:
         if self._tuning_store is None:
@@ -1878,15 +1864,12 @@ class ConfigurationServer(Node):
                     self._candidate_parameter_map(effective_values),
                     True,
                 )
-                for parameter_name in activated_names:
-                    value = self._pending_boot_values[parameter_name]
-                    self.parameter_handler.set_param(
-                        parameter_name,
-                        value,
-                        parameter_initialized=False,
-                        force_constant=True,
-                    )
-                    self.server_values[parameter_name] = value
+                activated = {
+                    parameter_name: self._pending_boot_values[parameter_name]
+                    for parameter_name in activated_names
+                }
+                self.parameter_handler.set_params(activated)
+                self.server_values.update(activated)
                 self.node_registry.clear()
                 self.pending_node_notifications.update(self._get_node_fq_names())
                 self.reconcile_nodes()
@@ -1916,16 +1899,13 @@ class ConfigurationServer(Node):
             except Exception as exc:
                 try:
                     durable = self._require_tuning_store().status()
-                    for parameter_name in activated_names:
-                        if parameter_name in durable["active_values"]:
-                            value = durable["active_values"][parameter_name]
-                            self.server_values[parameter_name] = value
-                            self.parameter_handler.set_param(
-                                parameter_name,
-                                value,
-                                parameter_initialized=False,
-                                force_constant=True,
-                            )
+                    durable_values = {
+                        parameter_name: durable["active_values"][parameter_name]
+                        for parameter_name in activated_names
+                        if parameter_name in durable["active_values"]
+                    }
+                    self.server_values.update(durable_values)
+                    self.parameter_handler.set_params(durable_values)
                 except Exception:
                     pass
                 response.success = False
