@@ -466,3 +466,279 @@ def test_journal_batches_are_cursor_bound_and_retained_across_release_turnover(
         next_release.journal_batch(
             session_id=old_status["session_id"], after_sequence=3, limit=10
         )
+
+
+def commit_many(tuning: TuningSessionStore, count: int, *, start: int = 0) -> dict:
+    """``count`` committed single-parameter updates starting at revision ``start``."""
+    values = dict(tuning.status()["active_values"] or BASELINE)
+    for index in range(start, start + count):
+        gain = float(index + 2)
+        plan = prepare(
+            tuning,
+            request_id=f"request-{index}",
+            revision=index,
+            values=values,
+            requested=edits(("/control/gain", gain, "none")),
+        )
+        assert isinstance(plan, TransactionPlan)
+        values = {**values, "/control/gain": gain}
+        result = tuning.commit(
+            plan,
+            observed_values=values,
+            persistence_reference=f"snapshots/runtime-{index}.yaml",
+        )
+        assert result["ok"] is True and result["revision"] == index + 1
+    return values
+
+
+def session_root(tmp_path: Path, tuning: TuningSessionStore) -> Path:
+    return tmp_path / "tuning/sessions" / tuning.status()["session_id"]
+
+
+def complete_wal_bytes(root: Path) -> bytes:
+    import lzma
+
+    sealed = b"".join(
+        lzma.decompress(path.read_bytes())
+        for path in sorted((root / "journal-segments").glob("*.jsonl.xz"))
+    )
+    return sealed + (root / "journal.jsonl").read_bytes()
+
+
+def test_wal_is_sealed_into_lossless_segments_and_the_active_file_stays_bounded(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import iii_drone_configuration.tuning as module
+
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 8)
+    segmented = store(tmp_path / "segmented")
+    commit_many(segmented, 21)
+    root = session_root(tmp_path / "segmented", segmented)
+
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 10**9)
+    monkeypatch.setattr(module, "WAL_SEGMENT_BYTES", 10**12)
+    plain = store(tmp_path / "plain")
+    commit_many(plain, 21)
+    plain_root = session_root(tmp_path / "plain", plain)
+    assert not (plain_root / "journal-segments").exists()
+
+    # the same 42 records, byte for byte, in both layouts
+    reference = (plain_root / "journal.jsonl").read_bytes()
+    assert complete_wal_bytes(root) == reference
+    segments = sorted(path.name for path in (root / "journal-segments").glob("*.jsonl.xz"))
+    assert [name[:41] for name in segments] == [
+        f"{first:020d}-{first + 7:020d}" for first in (1, 9, 17, 25, 33)
+    ]
+    assert len((root / "journal.jsonl").read_bytes().splitlines()) == 2
+    assert segmented.status() == {**plain.status()}
+
+    # a restarted store authenticates the sealed head from the segment names
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 8)
+    reopened = store(tmp_path / "segmented")
+    assert reopened.status()["revision"] == 21
+    assert reopened.status()["wal_sequence"] == 42
+    compacted = reopened.compact()
+    assert compacted["records"] == 42 and compacted["sealed_records"] == 40
+    assert compacted["sealed_segments"] == segments
+
+
+def test_updates_do_not_read_sealed_history(tmp_path: Path, monkeypatch) -> None:
+    import iii_drone_configuration.tuning as module
+
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 8)
+    tuning = store(tmp_path)
+    commit_many(tuning, 20)
+
+    def refuse(_path):
+        raise AssertionError("a sealed segment was read on the update path")
+
+    parsed: list[int] = []
+    original = TuningSessionStore._parse_wal
+
+    def counting(data, **kwargs):
+        parsed.append(len(data.splitlines()))
+        return original(data, **kwargs)
+
+    monkeypatch.setattr(TuningSessionStore, "_segment_bytes", staticmethod(refuse))
+    monkeypatch.setattr(TuningSessionStore, "_parse_wal", staticmethod(counting))
+    commit_many(tuning, 3, start=20)
+    assert tuning.status()["revision"] == 23
+    # only newly appended records are parsed, never the whole active file again
+    assert parsed and max(parsed) <= 2
+    # a restarted store needs the active file only
+    assert store(tmp_path).status()["revision"] == 23
+
+
+def test_journal_batches_and_idempotent_replay_reach_into_sealed_segments(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import iii_drone_configuration.tuning as module
+
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 8)
+    tuning = store(tmp_path)
+    values = commit_many(tuning, 15)
+    root = session_root(tmp_path, tuning)
+    records = [json.loads(line) for line in complete_wal_bytes(root).splitlines()]
+    assert len(records) == 30
+
+    collected: list[dict] = []
+    cursor = 0
+    while True:
+        batch = tuning.journal_batch(session_id=None, after_sequence=cursor, limit=7)
+        collected.extend(batch["entries"])
+        cursor = batch["through_sequence"]
+        assert batch["head_sequence"] == 30
+        assert batch["head_checksum"] == records[-1]["checksum"]
+        if batch["complete"]:
+            break
+    assert collected == records
+    with pytest.raises(TuningError, match="beyond the authoritative head"):
+        tuning.journal_batch(session_id=None, after_sequence=31, limit=1)
+
+    # request-2 was committed in the first sealed segment
+    same = edits(("/control/gain", 4.0, "none"))
+    replay = prepare(
+        store(tmp_path), request_id="request-2", revision=2, values=values, requested=same
+    )
+    assert isinstance(replay, dict)
+    assert replay["idempotent_replay"] is True and replay["revision"] == 3
+    with pytest.raises(TuningError, match="reused with other content"):
+        prepare(
+            store(tmp_path),
+            request_id="request-2",
+            revision=2,
+            values=values,
+            requested=edits(("/control/mode", "manual", "none")),
+        )
+
+    # the request index is derived: without it the segment is consulted directly
+    for path in (root / "journal-segments").glob("*.requests.json"):
+        path.unlink()
+    replay = prepare(
+        store(tmp_path), request_id="request-2", revision=2, values=values, requested=same
+    )
+    assert isinstance(replay, dict) and replay["idempotent_replay"] is True
+
+
+def test_interrupted_rotation_is_repaired_without_loss(tmp_path: Path, monkeypatch) -> None:
+    import iii_drone_configuration.tuning as module
+
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 8)
+    tuning = store(tmp_path)
+    commit_many(tuning, 3)
+    root = session_root(tmp_path, tuning)
+    real_atomic = module._atomic_bytes
+
+    def lose_power_before_the_cut(path, data, **kwargs):
+        if path.name == "journal.jsonl":
+            raise OSError("simulated power loss after sealing")
+        return real_atomic(path, data, **kwargs)
+
+    monkeypatch.setattr(module, "_atomic_bytes", lose_power_before_the_cut)
+    with pytest.raises(OSError, match="simulated power loss"):
+        commit_many(tuning, 1, start=3)
+    monkeypatch.setattr(module, "_atomic_bytes", real_atomic)
+    # sealed and still present in the active file
+    assert len(list((root / "journal-segments").glob("*.jsonl.xz"))) == 1
+    before = (root / "journal.jsonl").read_bytes()
+    assert len(before.splitlines()) == 8
+
+    recovered = store(tmp_path)
+    assert recovered.status()["revision"] == 4
+    assert (root / "journal.jsonl").read_bytes() == b""
+    assert complete_wal_bytes(root) == before
+    commit_many(recovered, 2, start=4)
+    assert recovered.status()["wal_sequence"] == 12
+    assert len(recovered._read_wal(root)) == 12
+
+
+def test_sealed_segment_tamper_and_gaps_fail_closed(tmp_path: Path, monkeypatch) -> None:
+    import lzma
+
+    import iii_drone_configuration.tuning as module
+
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 8)
+    tuning = store(tmp_path)
+    commit_many(tuning, 9)
+    root = session_root(tmp_path, tuning)
+    first, second = sorted((root / "journal-segments").glob("*.jsonl.xz"))
+
+    original = first.read_bytes()
+    first.chmod(0o640)
+    first.write_bytes(lzma.compress(lzma.decompress(original).replace(b"2.0", b"9.0", 1)))
+    with pytest.raises(TuningError):
+        store(tmp_path).compact()
+    with pytest.raises(TuningError):
+        store(tmp_path).journal_batch(session_id=None, after_sequence=0, limit=4)
+    first.write_bytes(original)
+    assert store(tmp_path).compact()["records"] == 18
+
+    # the state is anchored in the newest segment's identity
+    renamed = second.with_name(second.name.replace(second.name[42:106], "0" * 64))
+    second.rename(renamed)
+    with pytest.raises(TuningError, match="not anchored|differ|chain is invalid"):
+        store(tmp_path).status()
+    renamed.rename(second)
+
+    hidden = first.with_suffix(".hidden")
+    first.rename(hidden)
+    with pytest.raises(TuningError, match="not contiguous"):
+        store(tmp_path).status()
+    hidden.rename(first)
+    assert store(tmp_path).status()["revision"] == 9
+
+
+def test_open_prepared_transaction_is_never_sealed_and_recovers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import iii_drone_configuration.tuning as module
+
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 4)
+    tuning = store(tmp_path)
+    values = commit_many(tuning, 1)
+    root = session_root(tmp_path, tuning)
+    plan = prepare(
+        tuning,
+        request_id="request-open",
+        revision=1,
+        values=values,
+        requested=edits(("/control/gain", 7.0, "none")),
+    )
+    assert isinstance(plan, TransactionPlan)
+    rejected = prepare(tuning, request_id="request-stale", revision=0, values=values)
+    assert isinstance(rejected, dict) and rejected["ok"] is False
+    # four records, but one transaction is still open
+    assert len((root / "journal.jsonl").read_bytes().splitlines()) == 4
+    assert not list((root / "journal-segments").glob("*.jsonl.xz"))
+
+    recovered = store(tmp_path).recover_prepared(
+        active_values={**values, "/control/gain": 7.0},
+        persisted_values={**values, "/control/gain": 7.0},
+        pending_boot_values={},
+        persistence_reference="snapshots/recovered.yaml",
+    )
+    assert recovered is not None and recovered["status"] == "recovered-commit"
+    assert (root / "journal.jsonl").read_bytes() == b""
+    assert len(list((root / "journal-segments").glob("*.jsonl.xz"))) == 2
+    assert store(tmp_path).status()["revision"] == 2
+
+
+def test_existing_unsegmented_journal_is_migrated_in_place(tmp_path: Path, monkeypatch) -> None:
+    import iii_drone_configuration.tuning as module
+
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 10**9)
+    monkeypatch.setattr(module, "WAL_SEGMENT_BYTES", 10**12)
+    legacy = store(tmp_path)
+    commit_many(legacy, 10)
+    root = session_root(tmp_path, legacy)
+    before = (root / "journal.jsonl").read_bytes()
+
+    monkeypatch.setattr(module, "WAL_SEGMENT_RECORDS", 8)
+    upgraded = store(tmp_path)
+    assert upgraded.status()["revision"] == 10
+    commit_many(upgraded, 1, start=10)
+    names = sorted(path.name[:41] for path in (root / "journal-segments").glob("*.jsonl.xz"))
+    assert names == [f"{a:020d}-{b:020d}" for a, b in ((1, 8), (9, 16), (17, 22))]
+    assert (root / "journal.jsonl").read_bytes() == b""
+    assert complete_wal_bytes(root).startswith(before)
+    assert len(complete_wal_bytes(root).splitlines()) == 22

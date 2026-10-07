@@ -113,6 +113,20 @@ content-addressed session baselines, state, checksummed JSONL WALs, and revision
 checkpoints. Do not edit these files directly. A divergent status means automatic
 compensation failed and all configuration writes remain blocked until the exact
 observed state is reconciled.
+Each session's WAL is stored as a short active `journal.jsonl` plus sealed
+`journal-segments/<first>-<last>-<tail checksum>.jsonl.xz` files. Once the active
+file holds 64 records or 4 MiB and no transaction is open, its exact canonical
+record bytes are compressed losslessly into a segment and the active file is
+emptied; an interruption between the two steps is repaired on the next read. The
+hash chain continues across segments, and a segment's name carries the checksum
+the next record must chain to, so an update authenticates and reads only the
+active file and its cost does not grow with the number of earlier updates.
+Journal queries, idempotent request replay and `compact()` read the sealed
+segments they need (`compact()` verifies all of them). The
+`*.requests.json` files beside the segments are derived request-identity indexes
+and are rebuilt when missing. An existing unsegmented journal is sealed in place
+at the next update. No record is ever dropped or rewritten.
+
 Full-graph reconciliation retries the exact prior durable state; it clears the
 fault only after every affected node, the active file, and pending state match.
 Failed retries leave the fault and write block intact.

@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import lzma
 import os
 from pathlib import Path
 import re
@@ -25,6 +26,21 @@ PLAN_SCHEMA = "iii.configuration-transaction-plan/v1"
 RESULT_SCHEMA = "iii.configuration-transaction-result/v1"
 SELECTOR_SCHEMA = "iii.configuration-tuning-selector/v1"
 CHECKPOINT_SCHEMA = "iii.configuration-tuning-checkpoint/v1"
+SEGMENT_INDEX_SCHEMA = "iii.configuration-tuning-wal-segment-requests/v1"
+
+# The WAL is kept as sealed, losslessly compressed segments plus a short active
+# file.  Every record carries the full value maps of its transaction, so an
+# unsegmented journal grows by tens of kilobytes per update and reading it on
+# every transaction becomes the dominant cost of a parameter change.  A sealed
+# segment holds the exact canonical record bytes; nothing is dropped or rewritten.
+WAL_ACTIVE = "journal.jsonl"
+WAL_SEGMENTS = "journal-segments"
+WAL_SEGMENT_RECORDS = 64
+WAL_SEGMENT_BYTES = 4 * 1024 * 1024
+WAL_SEGMENT_NAME = re.compile(r"^(\d{20})-(\d{20})-([a-f0-9]{64})\.jsonl\.xz$")
+TERMINAL_KINDS = frozenset(
+    {"committed", "recovered-commit", "aborted", "rejected", "divergent"}
+)
 
 HASH = re.compile(r"^[a-f0-9]{64}$")
 IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,127}$")
@@ -217,6 +233,10 @@ class TuningSessionStore:
             raise TuningError("configuration manifest identity is malformed")
         self.manifest_id = manifest_id
         self.now = now
+        # verified active-file content and sealed-segment request identities,
+        # keyed by content digest / immutable segment name
+        self._tail_cache: dict[str, tuple[str, int, list[dict[str, Any]]]] = {}
+        self._segment_requests: dict[tuple[str, str], frozenset[str]] = {}
 
     @property
     def selector_path(self) -> Path:
@@ -361,20 +381,28 @@ class TuningSessionStore:
         self._validate_baseline(baseline)
         if baseline["baseline_id"] != state["baseline_id"]:
             raise TuningError("tuning state is bound to another baseline")
-        entries = self._read_wal(session_root)
-        last_sequence = entries[-1]["sequence"] if entries else 0
-        last_checksum = entries[-1]["checksum"] if entries else None
+        base_sequence, base_checksum, entries = self._read_wal_tail(session_root)
+        if state["wal_sequence"] < base_sequence:
+            # the state file lags behind sealed segments: authenticate against
+            # the complete history
+            base_sequence, base_checksum = 0, None
+            entries = self._read_wal(session_root)
+        last_sequence = entries[-1]["sequence"] if entries else base_sequence
+        last_checksum = entries[-1]["checksum"] if entries else base_checksum
         if state["wal_sequence"] > last_sequence:
             raise TuningError("tuning state advances beyond its WAL")
-        if state["wal_sequence"]:
-            retained = entries[state["wal_sequence"] - 1]
+        if state["wal_sequence"] > base_sequence:
+            retained = entries[state["wal_sequence"] - base_sequence - 1]
             if retained["checksum"] != state["wal_checksum"]:
+                raise TuningError("tuning state is not anchored in its WAL")
+        elif state["wal_sequence"]:
+            if base_checksum != state["wal_checksum"]:
                 raise TuningError("tuning state is not anchored in its WAL")
         elif state["wal_checksum"] is not None:
             raise TuningError("empty tuning state has a WAL checksum")
         if state["wal_sequence"] < last_sequence:
             state = self._replay_state_lag(
-                session_root, state, entries[state["wal_sequence"] :]
+                session_root, state, entries[state["wal_sequence"] - base_sequence :]
             )
         elif (
             state["wal_checksum"] != last_checksum
@@ -534,7 +562,7 @@ class TuningSessionStore:
         if session_id is not None and (
             current is None or current[0]["session_id"] != session_id
         ):
-            state, baseline, entries = self._load_historical_session(session_id)
+            state, baseline = self._load_historical_session(session_id)
         elif current is None:
             if after_sequence != 0:
                 raise TuningError(
@@ -553,10 +581,12 @@ class TuningSessionStore:
             }
         else:
             state, baseline = current
-            entries = self._read_wal(self._session_root(state["session_id"]))
-        if after_sequence > len(entries):
+        session_root = self._session_root(state["session_id"])
+        head = self._wal_head(session_root)
+        head_sequence = head["sequence"] if head else 0
+        if after_sequence > head_sequence:
             raise TuningError("journal cursor advances beyond the authoritative head")
-        selected = entries[after_sequence : after_sequence + limit]
+        selected = self._read_wal_range(session_root, after_sequence, limit)
         through = selected[-1]["sequence"] if selected else after_sequence
         return {
             "schema": "iii.configuration-journal-batch/v1",
@@ -569,18 +599,16 @@ class TuningSessionStore:
                 "workspace_id": baseline["workspace_id"],
                 "manifest_id": baseline["manifest_id"],
                 "created_at": baseline["created_at"],
-                "updated_at": (
-                    entries[-1]["timestamp"] if entries else state["updated_at"]
-                ),
-                "revision": entries[-1]["revision"] if entries else state["revision"],
+                "updated_at": head["timestamp"] if head else state["updated_at"],
+                "revision": head["revision"] if head else state["revision"],
             },
             "baseline_values": dict(baseline["values"]),
             "after_sequence": after_sequence,
             "through_sequence": through,
-            "head_sequence": len(entries),
-            "head_checksum": entries[-1]["checksum"] if entries else None,
+            "head_sequence": head_sequence,
+            "head_checksum": head["checksum"] if head else None,
             "entries": [dict(entry) for entry in selected],
-            "complete": through == len(entries),
+            "complete": through == head_sequence,
         }
 
     def ensure_session(
@@ -598,7 +626,7 @@ class TuningSessionStore:
 
     def _load_historical_session(
         self, session_id: str
-    ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Authenticate a retained session without changing the living selector."""
         session_root = self._session_root(session_id)
         if not session_root.is_dir() or session_root.is_symlink():
@@ -620,15 +648,16 @@ class TuningSessionStore:
             or baseline["runtime_profile"] != self.runtime_profile
         ):
             raise TuningError("retained tuning session belongs to another target")
-        entries = self._read_wal(session_root)
-        if state["wal_sequence"] > len(entries):
+        head = self._wal_head(session_root)
+        if state["wal_sequence"] > (head["sequence"] if head else 0):
             raise TuningError("retained tuning state advances beyond its WAL")
         if state["wal_sequence"]:
-            if entries[state["wal_sequence"] - 1]["checksum"] != state["wal_checksum"]:
+            anchor = self._read_wal_range(session_root, state["wal_sequence"] - 1, 1)
+            if not anchor or anchor[0]["checksum"] != state["wal_checksum"]:
                 raise TuningError("retained tuning state is not anchored in its WAL")
         elif state["wal_checksum"] is not None:
             raise TuningError("empty retained tuning state has a WAL checksum")
-        return state, baseline, entries
+        return state, baseline
 
     def _new_session(
         self,
@@ -697,19 +726,19 @@ class TuningSessionStore:
             baseline_values=baseline_values, persisted_values=persisted_values
         )
 
-    def _read_wal(self, session_root: Path) -> list[dict[str, Any]]:
-        path = session_root / "journal.jsonl"
-        if not path.exists():
-            return []
-        if path.is_symlink() or not path.is_file():
-            raise TuningError("tuning WAL is unsafe")
+    @staticmethod
+    def _parse_wal(
+        data: bytes,
+        *,
+        session_id: str,
+        after_sequence: int,
+        previous: str | None,
+    ) -> list[dict[str, Any]]:
+        """Validate canonical WAL records continuing a chain after ``after_sequence``."""
         entries: list[dict[str, Any]] = []
-        previous: str | None = None
-        try:
-            lines = path.read_bytes().splitlines(keepends=True)
-        except OSError as exc:
-            raise TuningError(f"cannot read tuning WAL: {exc}") from exc
-        for index, raw in enumerate(lines, start=1):
+        for index, raw in enumerate(
+            data.splitlines(keepends=True), start=after_sequence + 1
+        ):
             if not raw.endswith(b"\n"):
                 raise TuningError("tuning WAL ends with a partial record")
             try:
@@ -740,13 +769,285 @@ class TuningSessionStore:
                 or value["sequence"] != index
                 or value["previous_checksum"] != previous
                 or value["checksum"] != _identity(value, "checksum")
-                or value["session_id"] != session_root.name
+                or value["session_id"] != session_id
                 or not isinstance(value["body"], dict)
             ):
                 raise TuningError("tuning WAL chain is invalid")
             previous = value["checksum"]
             entries.append(value)
         return entries
+
+    @staticmethod
+    def _wal_segments(session_root: Path) -> list[tuple[int, int, str, Path]]:
+        """Sealed segments as (first, last, tail checksum, path), contiguous from 1."""
+        directory = session_root / WAL_SEGMENTS
+        if not directory.exists():
+            return []
+        if directory.is_symlink() or not directory.is_dir():
+            raise TuningError("tuning WAL segment directory is unsafe")
+        segments: list[tuple[int, int, str, Path]] = []
+        for path in directory.iterdir():
+            match = WAL_SEGMENT_NAME.fullmatch(path.name)
+            if match is None:
+                continue  # request indexes and interrupted temporary files
+            if path.is_symlink() or not path.is_file():
+                raise TuningError("tuning WAL segment is unsafe")
+            segments.append((int(match[1]), int(match[2]), match[3], path))
+        segments.sort()
+        expected = 1
+        for first, last, _checksum, _path in segments:
+            if first != expected or last < first:
+                raise TuningError("tuning WAL segments are not contiguous")
+            expected = last + 1
+        return segments
+
+    @staticmethod
+    def _segment_bytes(path: Path) -> bytes:
+        try:
+            return lzma.decompress(path.read_bytes())
+        except (OSError, lzma.LZMAError) as exc:
+            raise TuningError(f"cannot read tuning WAL segment: {exc}") from exc
+
+    def _read_segment(
+        self,
+        session_root: Path,
+        segments: Sequence[tuple[int, int, str, Path]],
+        index: int,
+    ) -> list[dict[str, Any]]:
+        """Decompress and validate one sealed segment against its own and its predecessor's name."""
+        first, last, checksum, path = segments[index]
+        entries = self._parse_wal(
+            self._segment_bytes(path),
+            session_id=session_root.name,
+            after_sequence=first - 1,
+            previous=segments[index - 1][2] if index else None,
+        )
+        if len(entries) != last - first + 1 or entries[-1]["checksum"] != checksum:
+            raise TuningError("tuning WAL segment does not match its identity")
+        return entries
+
+    def _read_wal_tail(
+        self, session_root: Path
+    ) -> tuple[int, str | None, list[dict[str, Any]]]:
+        """Records of the active file and the sealed head they continue.
+
+        Returns (last sealed sequence, its checksum, active records).  The sealed
+        head is taken from the newest segment's name; the active records are
+        validated against it.  Unchanged active content is not parsed again.
+        """
+        segments = self._wal_segments(session_root)
+        base_sequence = segments[-1][1] if segments else 0
+        base_checksum = segments[-1][2] if segments else None
+        path = session_root / WAL_ACTIVE
+        if not path.exists():
+            return base_sequence, base_checksum, []
+        if path.is_symlink() or not path.is_file():
+            raise TuningError("tuning WAL is unsafe")
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            raise TuningError(f"cannot read tuning WAL: {exc}") from exc
+        if not data:
+            return base_sequence, base_checksum, []
+        first_sequence = self._first_sequence(data)
+        if first_sequence <= base_sequence:
+            # a rotation was interrupted after sealing and before the active
+            # file was cut: the sealed records are still at its head
+            data = self._finish_rotation(session_root, segments, data, first_sequence)
+            if not data:
+                return base_sequence, base_checksum, []
+        key = str(session_root)
+        digest = hashlib.sha256(data).hexdigest()
+        cached = self._tail_cache.get(key)
+        if cached is not None and cached[0] == digest:
+            return base_sequence, base_checksum, list(cached[2])
+        entries: list[dict[str, Any]] | None = None
+        if cached is not None and cached[2] and len(data) > cached[1]:
+            if hashlib.sha256(data[: cached[1]]).hexdigest() == cached[0] and (
+                cached[2][0]["sequence"] == base_sequence + 1
+            ):
+                entries = list(cached[2]) + self._parse_wal(
+                    data[cached[1] :],
+                    session_id=session_root.name,
+                    after_sequence=cached[2][-1]["sequence"],
+                    previous=cached[2][-1]["checksum"],
+                )
+        if entries is None:
+            entries = self._parse_wal(
+                data,
+                session_id=session_root.name,
+                after_sequence=base_sequence,
+                previous=base_checksum,
+            )
+        self._tail_cache[key] = (digest, len(data), entries)
+        return base_sequence, base_checksum, list(entries)
+
+    @staticmethod
+    def _first_sequence(data: bytes) -> int:
+        head = data.split(b"\n", 1)[0]
+        try:
+            sequence = json.loads(head)["sequence"]
+        except (ValueError, KeyError, TypeError) as exc:
+            if b"\n" not in data:
+                raise TuningError("tuning WAL ends with a partial record") from exc
+            raise TuningError(f"tuning WAL record is invalid: {exc}") from exc
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+            raise TuningError("tuning WAL chain is invalid")
+        return sequence
+
+    def _finish_rotation(
+        self,
+        session_root: Path,
+        segments: Sequence[tuple[int, int, str, Path]],
+        data: bytes,
+        first_sequence: int,
+    ) -> bytes:
+        """Cut sealed records off the active file after proving they are identical."""
+        sealed = b"".join(
+            self._segment_bytes(segment[3])
+            for segment in segments
+            if segment[1] >= first_sequence
+        )
+        covering = [segment for segment in segments if segment[1] >= first_sequence]
+        if not covering or covering[0][0] != first_sequence or not data.startswith(sealed):
+            raise TuningError("tuning WAL and its sealed segments disagree")
+        remainder = data[len(sealed) :]
+        _atomic_bytes(session_root / WAL_ACTIVE, remainder)
+        self._tail_cache.pop(str(session_root), None)
+        return remainder
+
+    def _read_wal(self, session_root: Path) -> list[dict[str, Any]]:
+        """The complete authenticated history: every sealed segment and the active file."""
+        entries: list[dict[str, Any]] = []
+        segments = self._wal_segments(session_root)
+        for index in range(len(segments)):
+            entries.extend(self._read_segment(session_root, segments, index))
+        _base, _checksum, tail = self._read_wal_tail(session_root)
+        entries.extend(tail)
+        return entries
+
+    def _read_wal_range(
+        self, session_root: Path, after_sequence: int, limit: int
+    ) -> list[dict[str, Any]]:
+        """Records ``after_sequence + 1 ..`` (at most ``limit``), reading only what holds them."""
+        _base, _checksum, tail = self._read_wal_tail(session_root)
+        selected: list[dict[str, Any]] = []
+        segments = self._wal_segments(session_root)
+        for index, segment in enumerate(segments):
+            if segment[1] <= after_sequence or segment[0] > after_sequence + limit:
+                continue
+            selected.extend(self._read_segment(session_root, segments, index))
+        selected.extend(tail)
+        return [
+            entry
+            for entry in selected
+            if after_sequence < entry["sequence"] <= after_sequence + limit
+        ]
+
+    def _wal_head(self, session_root: Path) -> dict[str, Any] | None:
+        _base, _checksum, tail = self._read_wal_tail(session_root)
+        if tail:
+            return tail[-1]
+        segments = self._wal_segments(session_root)
+        if not segments:
+            return None
+        return self._read_segment(session_root, segments, len(segments) - 1)[-1]
+
+    def _rotate_wal(self, session_root: Path) -> None:
+        """Seal the active file into compressed segments once it is large enough.
+
+        Only a file without an open prepared transaction is sealed, so recovery
+        never needs a sealed segment.  The segment is durable before the active
+        file is cut; an interruption in between is repaired on the next read.
+        """
+        base_sequence, _checksum, entries = self._read_wal_tail(session_root)
+        if not entries:
+            return
+        path = session_root / WAL_ACTIVE
+        if len(entries) < WAL_SEGMENT_RECORDS and path.stat().st_size < WAL_SEGMENT_BYTES:
+            return
+        terminal = {
+            entry["transaction_id"] for entry in entries if entry["kind"] in TERMINAL_KINDS
+        }
+        if any(
+            entry["kind"] == "prepared" and entry["transaction_id"] not in terminal
+            for entry in entries
+        ):
+            return
+        directory = session_root / WAL_SEGMENTS
+        directory.mkdir(parents=True, exist_ok=True, mode=0o750)
+        _fsync_directory(session_root)
+        for start in range(0, len(entries), WAL_SEGMENT_RECORDS):
+            chunk = entries[start : start + WAL_SEGMENT_RECORDS]
+            name = (
+                f"{chunk[0]['sequence']:020d}-{chunk[-1]['sequence']:020d}-"
+                f"{chunk[-1]['checksum']}.jsonl.xz"
+            )
+            self._write_segment_requests(directory, name, chunk)
+            _atomic_bytes(
+                directory / name,
+                lzma.compress(
+                    b"".join(_canonical(entry) + b"\n" for entry in chunk), preset=1
+                ),
+                mode=0o440,
+            )
+        _atomic_bytes(path, b"")
+        self._tail_cache.pop(str(session_root), None)
+
+    @staticmethod
+    def _segment_requests_path(directory: Path, name: str) -> Path:
+        return directory / (name[: -len(".jsonl.xz")] + ".requests.json")
+
+    def _write_segment_requests(
+        self, directory: Path, name: str, entries: Sequence[Mapping[str, Any]]
+    ) -> frozenset[str]:
+        requests = frozenset(entry["request_id"] for entry in entries)
+        path = self._segment_requests_path(directory, name)
+        if path.exists():
+            path.chmod(0o640)
+        _atomic_document(
+            path,
+            {
+                "schema": SEGMENT_INDEX_SCHEMA,
+                "segment": name,
+                "request_ids": sorted(requests),
+            },
+            mode=0o440,
+        )
+        return requests
+
+    def _sealed_requests(
+        self,
+        session_root: Path,
+        segments: Sequence[tuple[int, int, str, Path]],
+        index: int,
+    ) -> frozenset[str]:
+        """Request identities of a sealed segment (a derived, rebuildable index)."""
+        segment = segments[index]
+        key = (str(session_root), segment[3].name)
+        cached = self._segment_requests.get(key)
+        if cached is not None:
+            return cached
+        path = self._segment_requests_path(segment[3].parent, segment[3].name)
+        requests: frozenset[str] | None = None
+        try:
+            value = _read_document(path, label="tuning WAL segment request index")
+            if (
+                value.get("schema") == SEGMENT_INDEX_SCHEMA
+                and value.get("segment") == segment[3].name
+                and isinstance(value.get("request_ids"), list)
+            ):
+                requests = frozenset(value["request_ids"])
+        except TuningError:
+            requests = None
+        if requests is None:
+            requests = self._write_segment_requests(
+                segment[3].parent,
+                segment[3].name,
+                self._read_segment(session_root, segments, index),
+            )
+        self._segment_requests[key] = requests
+        return requests
 
     def _append(
         self,
@@ -776,7 +1077,7 @@ class TuningSessionStore:
             "body": dict(body),
         }
         value["checksum"] = _identity(value, "checksum")
-        path = session_root / "journal.jsonl"
+        path = session_root / WAL_ACTIVE
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o640)
         try:
@@ -851,7 +1152,13 @@ class TuningSessionStore:
         fingerprint: str | None = None
         result: dict[str, Any] | None = None
         transaction_id: str | None = None
-        for entry in self._read_wal(session_root):
+        _base, _checksum, entries = self._read_wal_tail(session_root)
+        sealed: list[dict[str, Any]] = []
+        segments = self._wal_segments(session_root)
+        for index in range(len(segments)):
+            if request_id in self._sealed_requests(session_root, segments, index):
+                sealed.extend(self._read_segment(session_root, segments, index))
+        for entry in sealed + entries:
             if entry["request_id"] != request_id:
                 continue
             body_fingerprint = entry["body"].get("request_fingerprint")
@@ -1147,6 +1454,7 @@ class TuningSessionStore:
         if checkpoint:
             self._write_checkpoint(root, next_state)
         self._write_state_and_selector(root, next_state)
+        self._rotate_wal(root)
         return next_state
 
     def commit(
@@ -1374,12 +1682,12 @@ class TuningSessionStore:
             return None
         state, _baseline = current
         root = self._session_root(state["session_id"])
-        entries = self._read_wal(root)
+        # sealed segments never hold an open prepared transaction
+        _base, _checksum, entries = self._read_wal_tail(root)
         terminal = {
             entry["transaction_id"]
             for entry in entries
-            if entry["kind"]
-            in {"committed", "recovered-commit", "aborted", "rejected", "divergent"}
+            if entry["kind"] in TERMINAL_KINDS
         }
         prepared = [
             entry
@@ -1620,6 +1928,7 @@ class TuningSessionStore:
         state, _baseline = current
         root = self._session_root(state["session_id"])
         records = self._read_wal(root)
+        segments = self._wal_segments(root)
         checkpoints = sorted((root / "checkpoints").glob("*.json"))
         for path in checkpoints:
             _read_document(path, label="tuning checkpoint")
@@ -1627,5 +1936,7 @@ class TuningSessionStore:
             "compacted": False,
             "reason": "current session history is retained in full",
             "records": len(records),
+            "sealed_segments": [segment[3].name for segment in segments],
+            "sealed_records": segments[-1][1] if segments else 0,
             "checkpoints": [path.name for path in checkpoints],
         }
