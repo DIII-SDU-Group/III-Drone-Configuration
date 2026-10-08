@@ -5,6 +5,7 @@
     /perception/hough_transformer/canny_ratio: 4
     /perception/hough_transformer/canny_kernel_size: 3
     /perception/hough_transformer/n_lines_include: 8
+    /perception/hough_transformer/image_transport: raw
     /perception/pl_dir_computer/kf_r: 0.999
     /perception/pl_dir_computer/kf_q: 0.001
     /perception/pl_dir_computer/odometry_callback_period_ms: 25
@@ -38,7 +39,7 @@
     /control/maneuver_controller/maneuver_start_timeout_s: 1.0
     /control/maneuver_controller/maneuver_queue_size: 5
     /control/maneuver_controller/maneuver_execution_period_ms: 50
-    /control/maneuver_controller/reference_stream_timeout_ms: 500
+    /control/maneuver_controller/reference_stream_timeout_ms: 1500
     /control/maneuver_controller/reference_callback_provider_publish_period_ms: 100
     /control/maneuver_controller/maneuver_completion_token_acquisition_timeout_s: 0.1
     /control/maneuver_controller/use_nans_when_hovering: true
@@ -46,6 +47,11 @@
     /control/maneuver_controller/hover_by_object_max_euc_dist: 0.25
     /control/maneuver_controller/hover_on_cable_default_z_velocity: 0.1
     /control/maneuver_controller/hover_on_cable_default_yaw_rate: 0.0
+    /control/maneuver_controller/cable_push_takeoff_request_acceleration: 0.2
+    /control/maneuver_controller/cable_push_jerk: 1.0
+    /control/maneuver_controller/cable_push_start_timeout_s: 8.0
+    /control/maneuver_controller/cable_push_thrust_over_hover: 1.3
+    /control/maneuver_controller/cable_push_max_thrust: 0.95
     /control/maneuver_controller/maneuver_wait_for_execute_poll_ms: 100
     /control/maneuver_controller/maneuver_evaluate_done_poll_ms: 50
     /control/maneuver_controller/reached_position_euclidean_distance_threshold: 0.1
@@ -76,6 +82,7 @@
     /control/maneuver_controller/cable_landing_gripper_v_gate_half_width_at_reference_z: 0.08
     /control/maneuver_controller/cable_landing_gripper_v_gate_center_y: 0.0
     /control/maneuver_controller/cable_landing_gripper_v_gate_violation_grace_s: 0.0
+    /control/maneuver_controller/cable_landing_gripper_capture_z: 0.03
     /control/maneuver_controller/cable_landing_reference_truncate_radius: 0.25
     /control/maneuver_controller/cable_landing_reached_position_euclidean_distance_threshold: 0.1
     /control/maneuver_controller/cable_landing_controller_type: mpc
@@ -100,14 +107,16 @@
     /control/maneuver_controller/cable_takeoff_min_target_cable_distance: 0.5
     /control/maneuver_controller/use_gripper_status_condition: true
     /control/maneuver_controller/cable_takeoff_max_target_cable_distance: 2.0
+    /control/maneuver_controller/cable_takeoff_reached_pose_norm_threshold: 0.10
     /control/maneuver_controller/generate_trajectories_asynchronously_with_delay: true
     /control/maneuver_controller/generate_trajectories_poll_period_ms: 5
     /control/maneuver_controller/generate_trajectories_timeout_ms: 1000
     /control/maneuver_controller/fly_to_position_use_mpc: false
     /control/maneuver_controller/fly_to_object_use_mpc: false
     /control/maneuver_controller/fly_to_object_target_low_pass_time_constant_s: 1.0
+    # Real mmWave detections may also drop individual frames near the conductor.
+    /control/maneuver_controller/fly_to_object_target_loss_grace_s: 0.5
     /control/maneuver_controller/cable_landing_use_mpc: true
-    /control/maneuver_controller/cable_takeoff_use_mpc: true
     /control/maneuver_controller/cable_landing_target_upwards_velocity: 0.5
     /control/dt: 0.2
     /control/trajectory_generator/MPC_N: 10
@@ -170,9 +179,9 @@
     /control/trajectory_generator/cable_aware_grid_margin_m: 3.0
     /control/trajectory_generator/cable_aware_clearance_m: 1.0
     /control/trajectory_generator/cable_aware_max_astar_expansions: 50000
-    /control/trajectory_interpolator/interpolation_avg_velocity_m_s: 0.5
+    /control/trajectory_interpolator/interpolation_avg_velocity_m_s: 0.45
     /control/trajectory_interpolator/interpolation_avg_yaw_rate_rad_s: 0.5
-    /control/trajectory_interpolator/interpolation_max_velocity_m_s: 1.0
+    /control/trajectory_interpolator/interpolation_max_velocity_m_s: 0.45
     /control/trajectory_interpolator/interpolation_max_acceleration_m_s2: 0.5
     /control/trajectory_interpolator/interpolation_max_jerk_m_s3: 1.0
     /control/trajectory_interpolator/interpolation_max_yaw_rate_rad_s: 0.75
@@ -184,7 +193,7 @@
     /payload/charger_gripper/gripper_close_command: 1
     /payload/charger_gripper/gripper_command_complete_poll_interval_ms: 100
     /payload/charger_gripper/gripper_command_complete_timeout_ms: 1000
-    /payload/charger_gripper/charger_gripper_serial_port: /dev/charger
+    /payload/charger_gripper/charger_gripper_serial_port: /dev/iii/charger-gripper
     /payload/charger_gripper/charger_gripper_serial_baudrate: 115200
     /payload/charger_gripper/charger_gripper_serial_timeout: 0.1
     /payload/charger_gripper/gripper_command_serial_period_ms: 500
@@ -202,13 +211,12 @@
     /payload/charger_gripper/status_message_gripper_status_index: 7
     /payload/charger_gripper/battery_voltage_avg_filter_size: 10
     /payload/charger_gripper/charging_power_avg_filter_size: 10
-    /mission/mission_specification_file: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
     /mission/rosbag_recorder/artifact_root: /tmp/iii_drone/rosbags
     /mission/use_nans_when_hovering: true
     /mission/max_failed_attempts_during_maneuver: 3
     /mission/wait_for_maneuver_start_timeout_ms: 3000
     /mission/get_reference_timeout_ms: 150
-    /mission/reference_loss_timeout_ms: 500
+    /mission/reference_loss_timeout_ms: 1500
     /mission/reference_rebase_timeout_ms: 2000
     /mission/reference_continuity_position_tolerance_m: 0.25
     /mission/reference_continuity_velocity_tolerance_m_s: 0.5
@@ -238,6 +246,7 @@
     /behavior/select_target_line_method: closest_xy_above
     /behavior/hover_on_cable_target_z_velocity: 0.1
     /behavior/hover_on_cable_target_yaw_rate: 0.0
+    /behavior/cable_release_push_acceleration: 3.0
     /behavior/top_clearance_m: 2.0
     /behavior/horizontal_clearance_m: 2.0
     /behavior/under_cable_clearance_m: 2.0
@@ -283,11 +292,23 @@
     - 0.0
     - -1.57079632679
     - 0.0
+    # OptiTrack pose relay (opti_track profile only). rigid_body_id -1 is
+    # unset: set the aircraft's Motive rigid body id before flying.
+    /opti_track/pose_relay/rigid_body_id: -1
+    /opti_track/pose_relay/lab_ros_domain_id: 0
+    /opti_track/pose_relay/output_rate_hz: 50.0
+    /opti_track/pose_relay/stale_timeout_s: 0.15
+    /opti_track/pose_relay/position_variance_m2: 0.0001
+    /opti_track/pose_relay/orientation_variance_rad2: 0.0004
+    /opti_track/pose_relay/send_origin: true
+    /opti_track/pose_relay/origin_latitude_deg: 55.3672
+    /opti_track/pose_relay/origin_longitude_deg: 10.4310
+    /opti_track/pose_relay/origin_altitude_m: 20.0
 sensor:
   cable_camera:
     usb_cam:
       ros__parameters:
-        video_device: /dev/video0
+        video_device: /dev/iii/cable-camera
         framerate: 10.0
         io_method: mmap
         frame_id: camera
@@ -302,6 +323,6 @@ supervision:
       monitor_node_states: false
 /sensor/mmwave/mmwave:
   ros__parameters:
-    cli_port: /dev/mmWaveCli
-    data_port: /dev/mmWaveData
+    cli_port: /dev/iii/mmwave-cli
+    data_port: /dev/iii/mmwave-data
     mmwave_frame_id: mmwave

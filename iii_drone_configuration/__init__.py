@@ -1,3 +1,63 @@
 from pkgutil import extend_path
 
 __path__ = extend_path(__path__, __name__)
+
+from .installed_contracts import (  # noqa: E402
+    ConfigurationCompatibilityPlan,
+    ConfigurationContractError,
+    ContractLoadResult,
+    InstalledConfigurationContract,
+    RuntimeProfileDescriptor,
+    TrackedSetDescriptor,
+    VersionRange,
+    load_installed_contract,
+    plan_compatibility,
+    resolve_installed_contract_root,
+)
+from .reconciliation import (  # noqa: E402
+    ParameterSetPlan,
+    ReconciliationError,
+    ReconciliationPlan,
+    ReconciliationResult,
+    execute_reconciliation,
+    materialize_receiver_stage,
+    plan_configuration_checkpoint,
+    plan_reconciliation,
+    plan_reconciled_checkpoint,
+    plan_simulation_reconciliation,
+    reconcile_simulation_startup,
+    seal_configuration_checkpoint,
+    verify_configuration_checkpoint,
+    validate_reintroduction_decisions,
+    write_reintroduction_decisions,
+    write_reintroduction_review,
+)
+
+__all__ = [
+    "ConfigurationCompatibilityPlan",
+    "ConfigurationContractError",
+    "ContractLoadResult",
+    "InstalledConfigurationContract",
+    "RuntimeProfileDescriptor",
+    "TrackedSetDescriptor",
+    "VersionRange",
+    "load_installed_contract",
+    "plan_compatibility",
+    "resolve_installed_contract_root",
+    "ParameterSetPlan",
+    "ReconciliationError",
+    "ReconciliationPlan",
+    "ReconciliationResult",
+    "execute_reconciliation",
+    "materialize_receiver_stage",
+    "plan_configuration_checkpoint",
+    "plan_reconciliation",
+    "plan_reconciled_checkpoint",
+    "plan_simulation_reconciliation",
+    "reconcile_simulation_startup",
+    "seal_configuration_checkpoint",
+    "verify_configuration_checkpoint",
+    "validate_reintroduction_decisions",
+    "write_reintroduction_decisions",
+    "write_reintroduction_review",
+]

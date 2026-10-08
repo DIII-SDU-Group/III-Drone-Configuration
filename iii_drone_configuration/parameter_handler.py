@@ -2,7 +2,7 @@
 
 import os
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -160,6 +160,42 @@ class ParameterHandler:
                 self._any_params_changed = True
             else:
                 self._ignore_changed_parameter_names.remove(param_name)
+
+    def set_params(self, values: Dict[str, Any]) -> None:
+        """Apply a mutually consistent set of values, constants included.
+
+        Bounds may refer to other parameters, so each value is validated
+        against the whole set. Applying them one at a time would judge a value
+        against bounds the same set is about to change, and reject a valid set
+        depending on its order.
+        """
+        cast_values = {
+            name: self.cast_param_value(name, value) for name, value in values.items()
+        }
+        candidate_values = self._candidate_values()
+        for name, value in cast_values.items():
+            candidate_values = {
+                **candidate_values,
+                name: self._candidate_values_with_override(name, value)[name],
+            }
+        for name in cast_values:
+            self._native_core.validate_parameter_value(
+                name,
+                candidate_values[name]["value"],
+                candidate_values[name]["type"],
+                candidate_values,
+                True,
+            )
+        for name, value in cast_values.items():
+            dict_to_update = self._get_raw_yaml_param_dict(name)
+            previous_value = dict_to_update["value"]
+            dict_to_update["value"] = value
+            self.params_dict[name]["value"] = value
+            if previous_value != value:
+                if name not in self._ignore_changed_parameter_names:
+                    self._any_params_changed = True
+                else:
+                    self._ignore_changed_parameter_names.remove(name)
 
     def cast_param_value(self, param_name: str, param_value: Any) -> Any:
         self._ensure_parameter_exists(param_name)

@@ -6,15 +6,10 @@
 
 import rclpy
 from rclpy.node import Node
-from rcl_interfaces.msg import ParameterEvent, SetParametersResult
-from rclpy.parameter import Parameter, ParameterValue
 
-import os
 import yaml
-from datetime import datetime
-from threading import Thread, Lock, Semaphore
+from threading import Thread, Lock
 import time
-import yaml
 
 from iii_drone_interfaces.srv import GetParameterYaml, GetDeclaredParameters, SaveParameters, GetParameterFiles, LoadParameters, SetParameterFromGC, GetCurrentParameterFile, SetCurrentParameterFileAsDefault
 

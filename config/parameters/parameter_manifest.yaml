@@ -16,6 +16,14 @@ perception:
     n_lines_include:
       type: int
       value: 8
+    image_transport:
+      type: string
+      value: raw
+      options:
+      - raw
+      - compressed
+      constant: true
+      description: Cable camera image transport. compressed (lossless PNG) where frames cross a network link (the simulated camera in SIM and HIL); raw for the on-board camera.
   pl_dir_computer:
     kf_r:
       type: float
@@ -225,6 +233,41 @@ control:
       value: 0.0
       min: -3.1415
       max: 3.1415
+    cable_push_takeoff_request_acceleration:
+      type: float
+      value: 0.2
+      min: 0.05
+      max: 1.0
+      constant: true
+      description: Upward acceleration (m/s^2) the cable push commands until PX4 applies it (airborne and commanding thrust); it only has to be upward so PX4 leaves its takeoff state machine.
+    cable_push_jerk:
+      type: float
+      value: 1.0
+      min: 0.2
+      max: 3.0
+      constant: true
+      description: Ramp rate (m/s^3) of the cable push acceleration while PX4 applies the push.
+    cable_push_start_timeout_s:
+      type: float
+      value: 8.0
+      min: 3.0
+      max: 30.0
+      constant: true
+      description: Time (s) within which PX4 must apply the cable push (report the vehicle airborne and command thrust) after it starts; otherwise the push fails and the vehicle stays on the cable.
+    cable_push_thrust_over_hover:
+      type: float
+      value: 1.3
+      min: 1.05
+      max: 1.8
+      constant: true
+      description: Cable push thrust as a multiple of the hover thrust measured in free flight before the cable landing; the push acceleration is sized from it and the hover thrust PX4 assumes, so an untuned MPC_THR_HOVER does not change the push force.
+    cable_push_max_thrust:
+      type: float
+      value: 0.95
+      min: 0.5
+      max: 1.0
+      constant: true
+      description: Normalized thrust the calibrated cable push never commands above (below PX4's thrust saturation).
     maneuver_wait_for_execute_poll_ms:
       type: int
       value: 100
@@ -377,6 +420,12 @@ control:
       value: 0.0
       min: 0.0
       max: 2.0
+    cable_landing_gripper_capture_z:
+      type: float
+      value: 0.03
+      min: -0.1
+      max: 0.2
+      description: Cable gripper frame height (m) at or below which the cable landing freezes its conductor estimate; from there the offset sensor no longer sees the conductor, so the landing steers to the last estimate with its own odometry.
     cable_landing_reference_truncate_radius:
       type: float
       value: 0.25
@@ -494,6 +543,11 @@ control:
       value: 2.0
       min: /control/maneuver_controller/cable_takeoff_min_target_cable_distance
       max: 3.0
+    cable_takeoff_reached_pose_norm_threshold:
+      type: float
+      value: 0.10
+      min: 0.05
+      max: 0.25
     generate_trajectories_asynchronously_with_delay:
       type: bool
       value: true
@@ -520,10 +574,12 @@ control:
       value: 1.0
       min: 0.0
       max: 10.0
+    fly_to_object_target_loss_grace_s:
+      type: float
+      value: 0.5
+      min: 0.0
+      max: 5.0
     cable_landing_use_mpc:
-      type: bool
-      value: true
-    cable_takeoff_use_mpc:
       type: bool
       value: true
     cable_landing_target_upwards_velocity:
@@ -873,7 +929,7 @@ payload:
       min: 1
     charger_gripper_serial_port:
       type: string
-      value: /dev/charger
+      value: /dev/iii/charger-gripper
       constant: true
     charger_gripper_serial_baudrate:
       type: int
@@ -952,10 +1008,6 @@ mission:
       value: /tmp/iii_drone/rosbags
       description: Root directory for all manual and mission rosbag recordings.
       constant: true
-  mission_specification_file:
-    type: string
-    value: $MISSION_SPECIFICATION_DIR/mission_specification.yaml
-    constant: true
   use_nans_when_hovering:
     type: bool
     value: true
@@ -1150,6 +1202,12 @@ behavior:
     value: 0.0
     min: -3.1415
     max: 3.1415
+  cable_release_push_acceleration:
+    type: float
+    value: 3.0
+    min: 0.5
+    max: 6.0
+    description: Fallback upward acceleration (m/s^2) of the push that holds the vehicle against the cable while the gripper opens, used when no hover thrust was measured in free flight (Core then warns). PX4 turns it into thrust = MPC_THR_HOVER * (1 + a/g), so its force relies on a tuned hover thrust.
   top_clearance_m:
     type: float
     value: 2.0
@@ -1246,3 +1304,73 @@ tf:
       - -1.57079632679
       - 0.0
       constant: true
+opti_track:
+  pose_relay:
+    rigid_body_id:
+      type: int
+      value: -1
+      min: -1
+      max: 999
+      constant: true
+      description: Motive rigid body id of this aircraft; the OptiTrack lab gateway streams it as /body_splitter/body_<id>/pose. -1 is unset, and until it is configured the pose relay stays up but never becomes ready (its health reports ERROR).
+    lab_ros_domain_id:
+      type: int
+      value: 0
+      min: 0
+      max: 232
+      constant: true
+      description: ROS domain of the OptiTrack lab gateway. Only the pose relay's motion-capture subscription joins it; the rest of the stack stays on its own domain.
+    output_rate_hz:
+      type: float
+      value: 50.0
+      min: 10.0
+      max: 120.0
+      constant: true
+      description: Rate (Hz) at which the pose relay forwards the latest motion-capture pose to PX4 as /fmu/in/vehicle_visual_odometry.
+    stale_timeout_s:
+      type: float
+      value: 0.15
+      min: 0.05
+      max: 1.0
+      constant: true
+      description: Maximum age (s) of the last motion-capture pose that the pose relay still forwards to PX4.
+    position_variance_m2:
+      type: float
+      value: 0.0001
+      min: 0.000001
+      max: 1.0
+      constant: true
+      description: Per-axis position variance (m^2) the pose relay reports to PX4 with each motion-capture pose.
+    orientation_variance_rad2:
+      type: float
+      value: 0.0004
+      min: 0.000001
+      max: 1.0
+      constant: true
+      description: Per-axis orientation variance (rad^2) the pose relay reports to PX4 with each motion-capture pose.
+    send_origin:
+      type: bool
+      value: true
+      constant: true
+      description: Whether the pose relay sets PX4's global origin to origin_latitude_deg, origin_longitude_deg and origin_altitude_m, giving the motion-capture frame a global reference without GPS.
+    origin_latitude_deg:
+      type: float
+      value: 55.3672
+      min: -90.0
+      max: 90.0
+      constant: true
+      description: Latitude (deg) of the global origin the pose relay sets in PX4 when send_origin is true.
+    origin_longitude_deg:
+      type: float
+      value: 10.4310
+      min: -180.0
+      max: 180.0
+      constant: true
+      description: Longitude (deg) of the global origin the pose relay sets in PX4 when send_origin is true.
+    origin_altitude_m:
+      type: float
+      value: 20.0
+      min: -500.0
+      max: 9000.0
+      constant: true
+      description: Altitude (m above mean sea level) of the global origin the pose relay sets in PX4 when send_origin is true.

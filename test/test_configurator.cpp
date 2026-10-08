@@ -4,6 +4,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -51,22 +52,7 @@ protected:
 using ConfiguratorNodeTypes = ::testing::Types<rclcpp::Node, rclcpp_lifecycle::LifecycleNode>;
 TYPED_TEST_SUITE(ConfiguratorTypedTest, ConfiguratorNodeTypes);
 
-namespace {
-
-std::string WorkspaceRootFromProductionSchema()
-{
-    return std::filesystem::path(PRODUCTION_SCHEMA_FILE)
-        .parent_path()
-        .parent_path()
-        .parent_path()
-        .parent_path()
-        .parent_path()
-        .string();
-}
-
-}  // namespace
-
-TEST(ConfiguratorPathResolutionTest, FallsBackToWorkspaceSourceSchemaWhenRuntimeConfigIsUnseeded)
+TEST(ConfiguratorPathResolutionTest, IgnoresWorkspaceSourceAndWritableSchemaShadow)
 {
     if (!rclcpp::ok()) {
         rclcpp::init(0, nullptr);
@@ -85,13 +71,20 @@ TEST(ConfiguratorPathResolutionTest, FallsBackToWorkspaceSourceSchemaWhenRuntime
         ("iii_configurator_test_" + std::to_string(::getpid()));
     std::filesystem::remove_all(temp_config_base);
     std::filesystem::create_directories(temp_config_base);
+    const auto source_shadow = temp_config_base / "workspace" / "src" /
+        "III-Drone-Configuration" / "config" / "parameters";
+    std::filesystem::create_directories(source_shadow);
+    std::ofstream(source_shadow / "parameter_manifest.yaml") << "malformed: source shadow\n";
+    const auto writable_shadow = temp_config_base / "iii_drone" / "parameters";
+    std::filesystem::create_directories(writable_shadow);
+    std::ofstream(writable_shadow / "parameter_manifest.yaml") << "malformed: writable shadow\n";
 
     unsetenv("III_DRONE_SCHEMA_FILE");
     setenv("CONFIG_BASE_DIR", temp_config_base.string().c_str(), 1);
-    setenv("WORKSPACE_DIR", WorkspaceRootFromProductionSchema().c_str(), 1);
+    setenv("WORKSPACE_DIR", (temp_config_base / "workspace").string().c_str(), 1);
     setenv("SIMULATION", "true", 1);
 
-    auto node = std::make_shared<rclcpp::Node>("configurator_source_fallback_test");
+    auto node = std::make_shared<rclcpp::Node>("configurator_installed_schema_test");
     EXPECT_NO_THROW({
         Configurator<rclcpp::Node> configurator(node.get(), node->get_name());
         configurator.DeclareParameter(
