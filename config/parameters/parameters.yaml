@@ -1005,8 +1005,24 @@ mission:
   rosbag_recorder:
     artifact_root:
       type: string
-      value: /tmp/iii_drone/rosbags
-      description: Root directory for all manual and mission rosbag recordings.
+      value: /home/iii/ws/runtime_logs/rosbags
+      description: Root directory for all manual and mission rosbag recordings. On the persistent workspace disk, so recordings survive reboots (/tmp is emptied at boot).
+      constant: true
+    retention_max_bytes:
+      type: int
+      value: 10000000000
+      min: 0
+      description: The recorder keeps the newest recordings within this many bytes and removes older ones; the active recording is never removed. 0 keeps everything.
+      constant: true
+    exclude_topic_types:
+      type: string
+      value: sensor_msgs/msg/Image,sensor_msgs/msg/CompressedImage
+      description: Comma-separated message types left out of every recording (image streams are too large; everything else is recorded).
+      constant: true
+    exclude_regex:
+      type: string
+      value: (/compressed|/compressedDepth|/theora|/zstd)$
+      description: Topics matching this regular expression are left out of every recording (image_transport sub-topics). Empty records them.
       constant: true
   use_nans_when_hovering:
     type: bool

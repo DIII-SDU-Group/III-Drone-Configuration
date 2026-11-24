@@ -211,7 +211,10 @@
     /payload/charger_gripper/status_message_gripper_status_index: 7
     /payload/charger_gripper/battery_voltage_avg_filter_size: 10
     /payload/charger_gripper/charging_power_avg_filter_size: 10
-    /mission/rosbag_recorder/artifact_root: /tmp/iii_drone/rosbags
+    /mission/rosbag_recorder/artifact_root: /home/iii/ws/runtime_logs/rosbags
+    /mission/rosbag_recorder/retention_max_bytes: 10000000000
+    /mission/rosbag_recorder/exclude_topic_types: sensor_msgs/msg/Image,sensor_msgs/msg/CompressedImage
+    /mission/rosbag_recorder/exclude_regex: (/compressed|/compressedDepth|/theora|/zstd)$
     /mission/use_nans_when_hovering: true
     /mission/max_failed_attempts_during_maneuver: 3
     /mission/wait_for_maneuver_start_timeout_ms: 3000

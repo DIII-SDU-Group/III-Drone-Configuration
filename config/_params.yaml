@@ -177,7 +177,7 @@ payload:
 mission:
   rosbag_recorder:
     ros__parameters:
-      artifact_root: /tmp/iii_drone/rosbags
+      artifact_root: /home/iii/ws/runtime_logs/rosbags
   continuous_mission_orchestrator:
     ros__parameters:
       under_cable_target_distance: 1.5
