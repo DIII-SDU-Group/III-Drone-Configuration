@@ -759,3 +759,34 @@ def test_receiver_reconciliation_rejects_workstation_sim_profile(tmp_path: Path)
             mode="receiver-staged",
         )
     assert not (tmp_path / "sim-state").exists()
+
+
+def test_startup_reconciliation_waits_for_a_concurrent_one(tmp_path: Path):
+    # Concurrent launches must not plan against a binding another one is
+    # about to move (HIL start after a configuration package change).
+    import fcntl
+    import threading
+
+    contract = _contract(tmp_path, "contract")
+    state = tmp_path / "state"
+    _initial_state(contract, state)
+    done = threading.Event()
+
+    def reconcile() -> None:
+        reconcile_simulation_startup(
+            immutable_root=contract,
+            writable_state_root=state,
+            operations_root=tmp_path / "operations",
+            runtime_profile="sim",
+            target_id="sim",
+            release_id="release-old",
+        )
+        done.set()
+
+    with open(state / ".reconciliation.lock", "a+") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        worker = threading.Thread(target=reconcile)
+        worker.start()
+        assert not done.wait(0.5)
+    worker.join(10)
+    assert done.is_set()

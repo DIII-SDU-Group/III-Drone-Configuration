@@ -9,6 +9,7 @@ the CLI can share exactly the same policy.
 from __future__ import annotations
 
 import ast
+import fcntl
 from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
@@ -1606,19 +1607,28 @@ def reconcile_simulation_startup(
 ) -> ReconciliationResult:
     """Reconcile the selected local developer profile before runtime startup."""
 
-    plan = plan_simulation_reconciliation(
-        immutable_root=immutable_root,
-        writable_state_root=writable_state_root,
-        operations_root=operations_root,
-        runtime_profile=runtime_profile,
-        target_id=target_id,
-        release_id=release_id,
-    )
-    decisions_path = _operation_dir(plan) / "reconciliation-decisions.json"
-    result = execute_reconciliation(
-        plan,
-        decisions_path=decisions_path if decisions_path.is_file() else None,
-    )
+    # Launches start several processes that each reconcile at startup. After
+    # a configuration package change, two of them planned against the old
+    # binding at the same time; the one that executed second found the state
+    # already moved to the new package and failed the HIL start (2026-11-24).
+    # Plan and execute under one exclusive lock on the writable root, so a
+    # later caller plans against the state the earlier one left.
+    writable_state_root.mkdir(parents=True, exist_ok=True)
+    with open(writable_state_root / ".reconciliation.lock", "a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        plan = plan_simulation_reconciliation(
+            immutable_root=immutable_root,
+            writable_state_root=writable_state_root,
+            operations_root=operations_root,
+            runtime_profile=runtime_profile,
+            target_id=target_id,
+            release_id=release_id,
+        )
+        decisions_path = _operation_dir(plan) / "reconciliation-decisions.json"
+        result = execute_reconciliation(
+            plan,
+            decisions_path=decisions_path if decisions_path.is_file() else None,
+        )
     if result.status != "complete":
         raise ReconciliationError(
             f"developer configuration is blocked by {result.status}: {result.review_path}"
