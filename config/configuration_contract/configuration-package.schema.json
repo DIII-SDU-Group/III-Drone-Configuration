@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://iii-drone.local/schemas/configuration-package/v1",
+  "title": "III configuration immutable package contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "manifest_id",
+    "package_version",
+    "configuration_schema_version",
+    "compatibility",
+    "artifacts",
+    "tracked_sets"
+  ],
+  "properties": {
+    "schema": {"const": "iii.configuration-package/v1"},
+    "manifest_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "package_version": {"type": "string", "minLength": 1},
+    "configuration_schema_version": {"type": "integer", "minimum": 1},
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readable", "upgrade_from", "downgrade_from"],
+      "properties": {
+        "readable": {"$ref": "#/definitions/range"},
+        "upgrade_from": {"$ref": "#/definitions/range"},
+        "downgrade_from": {"$ref": "#/definitions/range"}
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 6,
+      "items": {"$ref": "#/definitions/artifact"}
+    },
+    "tracked_sets": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/definitions/trackedSet"}
+    }
+  },
+  "definitions": {
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "maximum"],
+      "properties": {
+        "minimum": {"type": "integer", "minimum": 1},
+        "maximum": {"type": "integer", "minimum": 1}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/-]*$"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "trackedSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "set_id", "default", "path", "sha256"],
+      "properties": {
+        "profile": {"enum": ["real", "sim"]},
+        "set_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+        "default": {"type": "boolean"},
+        "path": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    }
+  }
+}

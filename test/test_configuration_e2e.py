@@ -33,6 +33,10 @@ DISCOVERY_TIMEOUT_SECONDS = 10.0
 
 
 def _resolve_cpp_test_executable() -> Path:
+    # colcon test passes the executable from whichever build base built it.
+    configured = os.environ.get("III_CONFIGURATOR_MANAGED_TEST_NODE")
+    if configured:
+        return Path(configured)
     workspace_root = Path(__file__).resolve().parents[3]
     candidates = (
         workspace_root / "build" / "iii_drone_configuration" / "configurator_managed_test_node",
@@ -131,6 +135,7 @@ def get_remote_parameter(client_node, node_fq_name, parameter_name):
 def running_graph(monkeypatch, tmp_path):
     monkeypatch.setenv("III_DRONE_SCHEMA_FILE", str(TEST_SCHEMA_FILE))
     monkeypatch.setenv("CONFIG_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("III_OPERATIONS_ROOT", str(tmp_path / "operations"))
     monkeypatch.setenv("SIMULATION", "true")
     write_bootstrap_parameter_file(tmp_path)
 

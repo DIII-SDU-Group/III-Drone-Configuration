@@ -1,0 +1,13 @@
+{
+  "schema": "iii.configuration-migrations/v1",
+  "current_schema_version": 1,
+  "upgrade_from": {
+    "minimum": 1,
+    "maximum": 1
+  },
+  "downgrade_from": {
+    "minimum": 1,
+    "maximum": 1
+  },
+  "steps": []
+}
