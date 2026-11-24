@@ -215,6 +215,8 @@
     /mission/rosbag_recorder/retention_max_bytes: 10000000000
     /mission/rosbag_recorder/exclude_topic_types: sensor_msgs/msg/Image,sensor_msgs/msg/CompressedImage
     /mission/rosbag_recorder/exclude_regex: (/compressed|/compressedDepth|/theora|/zstd)$
+    /mission/rosbag_recorder/storage_preset_profile: zstd_fast
+    /mission/rosbag_recorder/max_bag_duration_s: 3600
     /mission/use_nans_when_hovering: true
     /mission/max_failed_attempts_during_maneuver: 3
     /mission/wait_for_maneuver_start_timeout_ms: 3000

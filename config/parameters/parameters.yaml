@@ -1024,6 +1024,17 @@ mission:
       value: (/compressed|/compressedDepth|/theora|/zstd)$
       description: Topics matching this regular expression are left out of every recording (image_transport sub-topics). Empty records them.
       constant: true
+    storage_preset_profile:
+      type: string
+      value: zstd_fast
+      description: MCAP storage preset for every recording (none, fastwrite, zstd_fast, zstd_small). zstd_fast compresses chunks; an all-topics soak recording is about 5x smaller.
+      constant: true
+    max_bag_duration_s:
+      type: int
+      value: 3600
+      min: 0
+      description: Split each recording into files of at most this many seconds; closed files are complete even if the recorder stops. 0 writes one file.
+      constant: true
   use_nans_when_hovering:
     type: bool
     value: true
